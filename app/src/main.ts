@@ -104,7 +104,9 @@ function statusTitle(): string {
     case 'ok':
       return `已同步 ${at}`;
     case 'offline':
-      return `离线，显示 ${at || '缓存'} 的数据`;
+      return state.snapshot?.derived
+        ? '离线，根据其他组件的缓存显示（可能不完整）'
+        : `离线，显示 ${at || '缓存'} 的数据`;
     case 'error':
       return state.message;
   }
@@ -221,12 +223,45 @@ async function refresh(): Promise<void> {
     if (!state.auth?.demo) cache.write(snapshot);
     setStatus('ok');
     renderBody();
-    // 能连上 Google 了：提交积压的离线修改
+    // 能连上 Google 了：提交积压的离线修改，并为其他组件预先缓存数据
     if (outbox.list().length) void flushPending();
+    void warmUp();
   } catch (e) {
     if (seq !== state.loadSeq) return;
     handleError(e);
   }
+}
+
+const ALL_VIEWS = ['month', 'day', 'quadrant', 'review', 'longterm'];
+/** 预先缓存的有效期：每个组件的数据最多每 30 分钟在后台取一次 */
+const WARM_MS = 30 * 60_000;
+let lastWarm = 0;
+
+/**
+ * 在后台为所有组件（包括尚未打开的）取一次数据并缓存，这样离线时第一次打开某个组件也有内容。
+ * 只取缓存已过期的查询；多个组件同时尝试时，用 Web Locks 只让一个执行。
+ */
+async function warmUp(): Promise<void> {
+  const source = state.source;
+  if (!source || state.auth?.demo || Date.now() - lastWarm < WARM_MS / 3) return;
+  lastWarm = Date.now();
+  const run = async () => {
+    const base = { today: state.today, snapshot: null, showCompleted: true, showLunar: false };
+    for (const id of ALL_VIEWS) {
+      if (id === view.id) continue; // 自己的数据刚刚取过
+      const query = createView(id).query(base);
+      const cached = cache.read(query);
+      if (cached && Date.now() - cached.fetchedAt < WARM_MS) continue;
+      try {
+        cache.write(await source.load(query));
+      } catch {
+        return; // 断网等：下次再试
+      }
+    }
+  };
+  const locks = navigator.locks;
+  if (!locks) return run();
+  await locks.request('deskcalendar-warm', { ifAvailable: true }, async (lock) => (lock ? run() : undefined));
 }
 
 let flushing = false;
@@ -297,7 +332,7 @@ async function perform(op: PendingOp): Promise<void> {
 /** 切换日期范围（月历翻月、日视图翻天） */
 function navigate(fn: () => void): void {
   fn();
-  state.snapshot = state.auth?.demo ? null : cache.read(currentQuery());
+  state.snapshot = state.auth?.demo ? null : cache.readOrDerive(currentQuery());
   renderBar();
   renderBody();
   void refresh();
@@ -662,7 +697,7 @@ async function start(detail = ''): Promise<void> {
     return;
   } else {
     state.source = new GoogleSource({ token: host.accessToken, invalidate: host.invalidateToken });
-    state.snapshot = cache.read(view.query(ctx()));
+    state.snapshot = cache.readOrDerive(currentQuery());
   }
   renderShell();
   void refresh();

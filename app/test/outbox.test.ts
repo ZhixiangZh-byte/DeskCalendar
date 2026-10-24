@@ -11,7 +11,7 @@ import {
   remapTemp,
   type QueuedOp,
 } from '../src/outbox';
-import { DemoSource, type Query } from '../src/source';
+import { cache, DemoSource, type Query, type Snapshot } from '../src/source';
 
 // Node 里没有 localStorage：用内存实现代替（离线队列每次读写都访问它）
 beforeEach(() => {
@@ -133,5 +133,58 @@ describe('提交离线队列（用演示数据源模拟 Google）', () => {
     expect(r.dropped[0]!.message).toContain('不存在');
     expect(outbox.list()).toEqual([]);
     expect((await source.load(range)).items.some((i) => i.title === '照常提交')).toBe(true);
+  });
+});
+
+describe('离线时没有自己缓存的组件：从其他组件的缓存中拼出数据', () => {
+  // 需要 length / key(i) 的完整内存 localStorage
+  function memoryStorage() {
+    const store = new Map<string, string>();
+    return {
+      get length() {
+        return store.size;
+      },
+      key: (i: number) => [...store.keys()][i] ?? null,
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    };
+  }
+
+  const snap = (key: string, items: CalendarItem[], fetchedAt: number, extra: Partial<Snapshot> = {}): Snapshot => ({
+    key, items, defaultTaskList: 'list', longTermList: 'lt', primaryCalendar: { id: 'cal', color: '#123' },
+    fetchedAt, syncedAt: fetchedAt, fullAt: fetchedAt, meta: null, ...extra,
+  });
+
+  it('四象限没有缓存时，从月历和长期规划的缓存中挑出未完成的普通任务；同一条目以最近取回的为准', () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    cache.write(snap('range:2026-09-28:2026-11-08', [
+      base({ title: '旧标题', id: 't1' }),
+      base({ title: '已完成', completed: true }),
+      base({ kind: 'event', title: '会议' }),
+    ], 1000));
+    cache.write(snap('long-term', [base({ title: '长期', sourceId: 'lt', start: '', end: '' })], 2000));
+    cache.write(snap('review:2026-10-24', [base({ title: '新标题', id: 't1', important: true })], 3000));
+
+    const derived = cache.readOrDerive({ kind: 'open-tasks' })!;
+    expect(derived.derived).toBe(true);
+    expect(derived.items.map((i) => [i.id, i.title, i.important])).toEqual([['t1', '新标题', true]]);
+    expect(derived.longTermList).toBe('lt');
+    expect(derived.fullAt).toBe(0); // 联网后一定全量刷新
+
+    const lt = cache.readOrDerive({ kind: 'long-term' })!;
+    expect(lt.items.map((i) => i.title)).toEqual(['长期']);
+  });
+
+  it('有自己的缓存时优先用自己的；完全没有缓存时返回 null；拼出来的数据不写回缓存', () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    expect(cache.readOrDerive({ kind: 'open-tasks' })).toBeNull();
+    cache.write(snap('open-tasks', [base({ title: '自己的' })], 1000));
+    cache.write(snap('range:2026-09-28:2026-11-08', [base({ title: '别人的', id: 'x2' })], 2000));
+    expect(cache.readOrDerive({ kind: 'open-tasks' })!.items.map((i) => i.title)).toEqual(['自己的']);
+
+    const derived = cache.derive({ kind: 'long-term' })!;
+    cache.write(derived);
+    expect(cache.read({ kind: 'long-term' })).toBeNull();
   });
 });

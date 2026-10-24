@@ -72,6 +72,11 @@
   - 所有修改都经过 main.ts 的 perform：联网直接提交；断网或队列非空时入队。
   - 演示数据源可通过 globalThis.__DESKCAL_DEMO_OFFLINE__ 模拟断网。
   - 测试增至 73 项。
+- **离线时新开组件为空的问题（2026-10-24 用户反馈，已修复）**：
+  - 原因：各组件只缓存自己的查询，离线时第一次打开的组件没有数据。组件之间的通信本身不受断网影响。
+  - 修复一（预缓存）：refresh 成功后执行 warmUp，在后台为所有组件的默认查询取数据并缓存，每个查询最多 30 分钟取一次，用 navigator.locks 'deskcalendar-warm' 保证只有一个组件在取。
+  - 修复二（离线兜底）：cache.readOrDerive 在自己没有缓存时，从所有缓存中按 matchesQuery 挑出条目（derived: true，不写回缓存，fullAt 为 0 以保证联网后全量刷新）。
+  - 演示模式不使用缓存，所以这部分只有单元测试（75 项），真实环境待用户验证。
 - 下一阶段（可选）：二十四节气。
 - 测试注意：`Shell.ToggleDesktop()` 在其他程序抢占前台时不可靠，自动化测试请用模拟 Win+D 按键。PowerShell 向 .NET 的 string 参数传 `$null` 时会变成空字符串，需要用 `[NullString]::Value`。
 

@@ -63,6 +63,8 @@ export interface Snapshot {
   /** 上次全量刷新的时刻 */
   fullAt: number;
   meta: SnapshotMeta | null;
+  /** 离线时由其他组件的缓存拼出来的数据（可能不完整），不用于增量刷新 */
+  derived?: boolean;
 }
 
 /** 两次全量刷新的最长间隔；其间只做增量刷新 */
@@ -568,11 +570,55 @@ export const cache = {
     }
   },
   write(snapshot: Snapshot): void {
+    if (snapshot.derived) return; // 拼出来的数据不完整，不写回缓存
     try {
       localStorage.setItem(CACHE_PREFIX + snapshot.key, JSON.stringify(snapshot));
     } catch {
       // 存储已满或不可用时忽略
     }
+  },
+  /** 所有组件的缓存（按取回时间从旧到新） */
+  readAll(): Snapshot[] {
+    const out: Snapshot[] = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key?.startsWith(CACHE_PREFIX)) continue;
+        const raw = localStorage.getItem(key);
+        if (raw) out.push(JSON.parse(raw) as Snapshot);
+      }
+    } catch {
+      // 忽略损坏的缓存
+    }
+    return out.sort((a, b) => a.fetchedAt - b.fetchedAt);
+  },
+  /**
+   * 本查询没有缓存时（如离线时第一次打开某个组件），从其他组件的缓存中挑出属于本查询的条目。
+   * 同一条目以最近取回的为准。没有任何缓存时返回 null。
+   */
+  derive(query: Query): Snapshot | null {
+    const all = this.readAll();
+    if (!all.length) return null;
+    const latest = all[all.length - 1]!;
+    const longTermList = [...all].reverse().find((s) => s.longTermList)?.longTermList ?? null;
+    const byId = new Map<string, CalendarItem>();
+    for (const s of all) for (const item of s.items) byId.set(item.id, item);
+    return {
+      key: queryKey(query),
+      items: [...byId.values()].filter((i) => matchesQuery(i, query, longTermList)),
+      defaultTaskList: [...all].reverse().find((s) => s.defaultTaskList)?.defaultTaskList ?? null,
+      longTermList,
+      primaryCalendar: [...all].reverse().find((s) => s.primaryCalendar)?.primaryCalendar ?? null,
+      fetchedAt: latest.fetchedAt,
+      syncedAt: 0,
+      fullAt: 0,
+      meta: null,
+      derived: true,
+    };
+  },
+  /** 本查询的缓存；没有时从其他组件的缓存中拼出 */
+  readOrDerive(query: Query): Snapshot | null {
+    return this.read(query) ?? this.derive(query);
   },
   clear(): void {
     try {
