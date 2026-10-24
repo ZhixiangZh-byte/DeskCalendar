@@ -134,8 +134,9 @@ describe('任务转换', () => {
     expect(item).toMatchObject({ kind: 'task', start: '2026-10-24', end: '2026-10-24', completed: true, important: true, urgent: false, notes: '本周' });
   });
 
-  it('没有日期（长期规划）或已删除的任务不显示', () => {
-    expect(taskToItem({ id: 't', title: 'x' }, 'list')).toBeNull();
+  it('没有日期的任务 start/end 为空字符串；已删除的任务忽略；记录完成时刻', () => {
+    expect(taskToItem({ id: 't', title: 'x' }, 'list')).toMatchObject({ start: '', end: '' });
+    expect(taskToItem({ id: 't', title: 'x', status: 'completed', completed: '2026-10-24T03:00:00.000Z' }, 'list')!.completedAt).toBe('2026-10-24T03:00:00.000Z');
     expect(taskToItem({ id: 't', title: 'x', due: '2026-10-24T00:00:00.000Z', deleted: true }, 'list')).toBeNull();
   });
 });
@@ -143,7 +144,7 @@ describe('任务转换', () => {
 describe('同一天内的排序', () => {
   const base = (p: Partial<CalendarItem>): CalendarItem => ({
     kind: 'task', id: p.title ?? 'x', sourceId: 's', title: 'x', start: '2026-10-24', end: '2026-10-24', time: null, endTime: null,
-    color: '', completed: false, important: false, urgent: false, link: null, notes: '', location: '', endTimeDate: null, editable: true, recurring: false, ...p,
+    color: '', completed: false, completedAt: null, important: false, urgent: false, link: null, notes: '', location: '', endTimeDate: null, editable: true, recurring: false, ...p,
   });
 
   it('全天事件 → 定时事件 → 未完成任务（重要紧急优先）→ 已完成任务', () => {

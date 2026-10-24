@@ -13,9 +13,9 @@ export interface CalendarItem {
   /** 所属日历 ID 或任务清单 ID */
   sourceId: string;
   title: string;
-  /** 起始日期（本地）YYYY-MM-DD */
+  /** 起始日期（本地）YYYY-MM-DD；没有日期的任务为空字符串 */
   start: string;
-  /** 结束日期（含）；单日条目等于 start */
+  /** 结束日期（含）；单日条目等于 start；没有日期的任务为空字符串 */
   end: string;
   /** 开始时间 HH:mm；全天事件和任务为 null */
   time: string | null;
@@ -25,6 +25,8 @@ export interface CalendarItem {
   endTimeDate: string | null;
   color: string;
   completed: boolean;
+  /** 完成时刻（ISO 时间），仅已完成的任务 */
+  completedAt: string | null;
   important: boolean;
   urgent: boolean;
   /** 在 Google 网页中打开的链接 */
@@ -102,6 +104,7 @@ export interface GoogleTask {
   notes?: string;
   status?: 'needsAction' | 'completed';
   due?: string;
+  completed?: string;
   deleted?: boolean;
   hidden?: boolean;
   webViewLink?: string;
@@ -144,6 +147,7 @@ export function eventToItem(ev: GoogleEvent, calendarId: string, color: string, 
     endTimeDate,
     color,
     completed: false,
+    completedAt: null,
     important: false,
     urgent: false,
     link: ev.htmlLink ?? null,
@@ -155,11 +159,11 @@ export function eventToItem(ev: GoogleEvent, calendarId: string, color: string, 
   };
 }
 
-/** 没有截止日期的任务（如长期规划）不显示在月历上，返回 null */
+/** 已删除的任务返回 null；没有截止日期的任务（如长期规划）start/end 为空字符串 */
 export function taskToItem(t: GoogleTask, listId: string): CalendarItem | null {
-  if (t.deleted || !t.due) return null;
+  if (t.deleted) return null;
   // Tasks API 的 due 只保存日期，形如 2026-10-24T00:00:00.000Z，取日期部分即可
-  const date = t.due.slice(0, 10);
+  const date = t.due ? t.due.slice(0, 10) : '';
   const tags = parseTags(t.notes);
   return {
     kind: 'task',
@@ -173,6 +177,7 @@ export function taskToItem(t: GoogleTask, listId: string): CalendarItem | null {
     endTimeDate: null,
     color: TASK_COLOR,
     completed: t.status === 'completed',
+    completedAt: t.status === 'completed' ? (t.completed ?? null) : null,
     important: tags.important,
     urgent: tags.urgent,
     link: t.webViewLink ?? null,

@@ -11,23 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "month",
-        "title": "DeskCalendar 月历",
-        "width": 560,
-        "height": 480,
-        "minWidth": 380,
-        "minHeight": 340,
-        "x": 60,
-        "y": 80,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "skipTaskbar": true,
-        "resizable": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://www.googleapis.com https://tasks.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     }

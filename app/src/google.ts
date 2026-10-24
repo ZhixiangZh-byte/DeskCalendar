@@ -106,37 +106,52 @@ export class GoogleClient {
     return this.listAll<GoogleTaskList>(url);
   }
 
-  /** 截止日期在 [dueMin, dueMax) 内的任务，含已完成和已隐藏的 */
-  async tasks(listId: string, dueMin: string, dueMax: string): Promise<GoogleTask[]> {
+  /**
+   * 列出清单中的任务。
+   * - dueMin / dueMax：截止日期范围 [dueMin, dueMax)，YYYY-MM-DD
+   * - completedMin：只要此时刻之后完成的（ISO 时间）
+   * - showCompleted：是否包含已完成（含已隐藏）的任务，默认 true
+   */
+  async tasks(
+    listId: string,
+    opts: { dueMin?: string; dueMax?: string; completedMin?: string; showCompleted?: boolean } = {},
+  ): Promise<GoogleTask[]> {
     const url = new URL(`${TASKS}/lists/${encodeURIComponent(listId)}/tasks`);
     url.searchParams.set('maxResults', '100');
-    url.searchParams.set('showCompleted', 'true');
-    url.searchParams.set('showHidden', 'true');
-    url.searchParams.set('dueMin', `${dueMin}T00:00:00.000Z`);
-    url.searchParams.set('dueMax', `${dueMax}T00:00:00.000Z`);
+    const completed = opts.showCompleted ?? true;
+    url.searchParams.set('showCompleted', String(completed));
+    url.searchParams.set('showHidden', String(completed));
+    if (opts.dueMin) url.searchParams.set('dueMin', `${opts.dueMin}T00:00:00.000Z`);
+    if (opts.dueMax) url.searchParams.set('dueMax', `${opts.dueMax}T00:00:00.000Z`);
+    if (opts.completedMin) url.searchParams.set('completedMin', opts.completedMin);
     return this.listAll<GoogleTask>(url);
   }
 
-  createTask(listId: string, task: { title: string; due: string; notes?: string }): Promise<GoogleTask> {
+  createTaskList(title: string): Promise<GoogleTaskList> {
+    return this.request<GoogleTaskList>('POST', `${TASKS}/users/@me/lists`, { title });
+  }
+
+  /** 新建任务；due 为 YYYY-MM-DD，null 表示不设日期 */
+  createTask(listId: string, task: { title: string; due: string | null; notes?: string }): Promise<GoogleTask> {
     return this.request<GoogleTask>('POST', `${TASKS}/lists/${encodeURIComponent(listId)}/tasks`, {
       title: task.title,
-      due: `${task.due}T00:00:00.000Z`,
+      ...(task.due ? { due: `${task.due}T00:00:00.000Z` } : {}),
       ...(task.notes ? { notes: task.notes } : {}),
     });
   }
 
-  /** 修改任务；due 为 YYYY-MM-DD；completed 不传时不改变完成状态 */
+  /** 修改任务；due 为 YYYY-MM-DD 或 null（清除日期）；completed 不传时不改变完成状态 */
   updateTask(
     listId: string,
     taskId: string,
-    patch: { title: string; notes: string; due: string; completed?: boolean },
+    patch: { title: string; notes: string; due: string | null; completed?: boolean },
   ): Promise<GoogleTask> {
     const status =
       patch.completed === undefined ? {} : patch.completed ? { status: 'completed' } : { status: 'needsAction', completed: null };
     return this.request<GoogleTask>(
       'PATCH',
       `${TASKS}/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`,
-      { title: patch.title, notes: patch.notes, due: `${patch.due}T00:00:00.000Z`, ...status },
+      { title: patch.title, notes: patch.notes, due: patch.due ? `${patch.due}T00:00:00.000Z` : null, ...status },
     );
   }
 

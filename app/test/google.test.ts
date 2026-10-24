@@ -106,9 +106,11 @@ describe('GoogleSource', () => {
         body: { items: [{ id: 't1', title: '写周报', due: '2026-10-24T00:00:00.000Z', notes: '#紧急', status: 'needsAction' }] },
       }),
     });
-    const snap = await new GoogleSource(t.provider, impl).load({ start: '2026-09-28', end: '2026-11-08' });
+    const snap = await new GoogleSource(t.provider, impl).load({ kind: 'range', range: { start: '2026-09-28', end: '2026-11-08' } });
     expect(snap.defaultTaskList).toBe('l1');
     expect(snap.primaryCalendar).toEqual({ id: 'primary@x', color: '#123456' });
+    expect(snap.longTermList).toBe('lt');
+    expect(snap.key).toBe('range:2026-09-28:2026-11-08');
     expect(snap.items.map((i) => [i.kind, i.title, i.start, i.time, i.urgent])).toEqual([
       ['event', '组会', '2026-10-24', '10:00', false],
       ['task', '写周报', '2026-10-24', null, true],
@@ -222,5 +224,83 @@ describe('编辑与删除事件', () => {
     expect(updated).toMatchObject({ title: '组会（改）', editable: true, color: '#123' });
     await source.deleteEvent(item);
     expect(calls[1]!.method).toBe('DELETE');
+  });
+});
+
+describe('各组件的查询', () => {
+  const lists = { items: [{ id: 'lt', title: '长期规划' }, { id: 'l1', title: '我的任务' }] };
+  const task = (id: string, extra: object = {}) => ({ id, title: id, status: 'needsAction', ...extra });
+
+  it('四象限：未完成任务，不限日期，排除长期规划清单', async () => {
+    const t = tokens();
+    const { impl, calls } = fakeFetch({
+      'GET /users/@me/lists': () => ({ body: lists }),
+      'GET /lists/l1/tasks': () => ({ body: { items: [task('a'), task('b', { due: '2026-10-24T00:00:00.000Z' })] } }),
+    });
+    const snap = await new GoogleSource(t.provider, impl).load({ kind: 'open-tasks' });
+    expect(snap.items.map((i) => [i.title, i.start])).toEqual([['a', ''], ['b', '2026-10-24']]);
+    const call = calls.find((c) => c.url.pathname.endsWith('/lists/l1/tasks'))!;
+    expect(call.url.searchParams.get('showCompleted')).toBe('false');
+    expect(call.url.searchParams.has('dueMin')).toBe(false);
+    expect(calls.some((c) => c.url.pathname.includes('/lists/lt/'))).toBe(false);
+    expect(calls.some((c) => c.url.pathname.includes('calendarList'))).toBe(false);
+  });
+
+  it('回顾箱：逾期未完成 + 指定时刻后完成的任务，去重', async () => {
+    const t = tokens();
+    const { impl, calls } = fakeFetch({
+      'GET /users/@me/lists': () => ({ body: lists }),
+      'GET /lists/l1/tasks': (c) =>
+        c.url.searchParams.get('showCompleted') === 'false'
+          ? { body: { items: [task('逾期', { due: '2026-10-20T00:00:00.000Z' })] } }
+          : {
+              body: {
+                items: [
+                  task('逾期', { due: '2026-10-20T00:00:00.000Z' }),
+                  task('已完成', { status: 'completed', completed: '2026-10-22T08:00:00.000Z' }),
+                  task('今天未完成', { due: '2026-10-24T00:00:00.000Z' }),
+                ],
+              },
+            },
+    });
+    const snap = await new GoogleSource(t.provider, impl).load({ kind: 'review', today: '2026-10-24', completedSince: '2026-09-24T00:00:00.000Z' });
+    expect(snap.items.map((i) => i.title).sort()).toEqual(['已完成', '逾期']);
+    const overdueCall = calls.find((c) => c.url.searchParams.get('showCompleted') === 'false')!;
+    expect(overdueCall.url.searchParams.get('dueMax')).toBe('2026-10-24T00:00:00.000Z');
+    const doneCall = calls.find((c) => c.url.searchParams.has('completedMin'))!;
+    expect(doneCall.url.searchParams.get('completedMin')).toBe('2026-09-24T00:00:00.000Z');
+  });
+
+  it('长期规划：读"长期规划"清单；清单不存在时新建任务会先创建清单', async () => {
+    const t = tokens();
+    let hasList = false;
+    const { impl, calls } = fakeFetch({
+      'GET /users/@me/lists': () => ({ body: { items: hasList ? lists.items : [{ id: 'l1', title: '我的任务' }] } }),
+      'POST /users/@me/lists': (c) => {
+        hasList = true;
+        return { body: { id: 'lt', ...(c.body as object) } };
+      },
+      'POST /lists/lt/tasks': (c) => ({ body: { id: 'new', ...(c.body as object) } }),
+      'GET /lists/lt/tasks': () => ({ body: { items: [task('学会潜水')] } }),
+    });
+    const source = new GoogleSource(t.provider, impl);
+    const empty = await source.load({ kind: 'long-term' });
+    expect(empty.items).toEqual([]);
+    expect(empty.longTermList).toBeNull();
+
+    const created = await source.createTask('long-term', { title: '写一本书', notes: '', date: null, important: true, urgent: false });
+    expect(calls.find((c) => c.method === 'POST' && c.url.pathname.endsWith('/users/@me/lists'))!.body).toEqual({ title: '长期规划' });
+    expect(calls.find((c) => c.url.pathname.endsWith('/lists/lt/tasks'))!.body).toEqual({ title: '写一本书', notes: '#重要' });
+    expect(created).toMatchObject({ sourceId: 'lt', start: '', important: true });
+
+    const snap = await source.load({ kind: 'long-term' });
+    expect(snap.items.map((i) => i.title)).toEqual(['学会潜水']);
+  });
+
+  it('清除任务日期时 due 发送 null', async () => {
+    const t = tokens();
+    const { impl, calls } = fakeFetch({ 'PATCH /lists/l1/tasks/t1': (c) => ({ body: { id: 't1', ...(c.body as object) } }) });
+    await new GoogleClient(t.provider, impl).updateTask('l1', 't1', { title: 'x', notes: '', due: null });
+    expect(calls[0]!.body).toEqual({ title: 'x', notes: '', due: null });
   });
 });

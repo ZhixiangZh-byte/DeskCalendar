@@ -1,6 +1,6 @@
 /** 宿主环境适配：在 Tauri 中调用后台命令；在普通浏览器中（界面预览）返回演示模式。 */
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 export const inTauri = '__TAURI_INTERNALS__' in window;
@@ -31,6 +31,10 @@ export const host = {
   getLocked: (): Promise<boolean> => (inTauri ? invoke<boolean>('get_locked') : Promise.resolve(false)),
   setLocked: (locked: boolean) => (inTauri ? invoke<void>('set_locked', { locked }) : Promise.resolve()),
   clickThroughFor: (seconds: number) => (inTauri ? invoke<void>('click_through_for', { seconds }) : Promise.resolve()),
+  /** 关闭当前组件（可在托盘菜单"显示组件"中重新打开） */
+  hideWidget: () => (inTauri ? invoke<void>('hide_widget') : Promise.resolve()),
+  /** 通知其他组件：数据有变化，请刷新 */
+  broadcastDataChanged: (from: string) => (inTauri ? emit('data-changed', from) : Promise.resolve()),
   open: (url: string) => (inTauri ? openUrl(url) : Promise.resolve(void window.open(url, '_blank'))),
   on: <T>(event: string, cb: (payload: T) => void) => (inTauri ? listen<T>(event, (e) => cb(e.payload)) : Promise.resolve(() => {})),
 };

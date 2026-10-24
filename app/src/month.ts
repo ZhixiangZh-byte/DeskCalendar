@@ -31,6 +31,7 @@ export function buildMonth(year: number, month: number, items: readonly Calendar
   const byDate = new Map<string, CalendarItem[]>();
   for (const item of items) {
     if (item.completed && options.showCompleted === false) continue;
+    if (!item.start) continue; // 没有日期的任务不进月历
     // 只遍历与网格重叠的部分
     let d = item.start < start ? start : item.start;
     const last = item.end > end ? end : item.end;

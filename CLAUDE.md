@@ -46,7 +46,12 @@
   - 支持全天/定时互相转换（PATCH 时用 null 清掉另一种时间字段）。
   - 说明未改动时不发送 description，避免把富文本覆盖成纯文本。
   - 缓存键升级为 v3；测试增至 34 项。
-- 下一阶段（计划）：日视图、四象限、回顾箱、长期规划组件（多窗口共用后台）；离线修改队列；按 syncToken / updatedMin 增量刷新。
+- **第四阶段：多组件（2026-10-24 完成）**。新增日视图、四象限、回顾箱、长期规划四个组件：
+  - 窗口：所有组件由 Rust 在运行时创建（tauri.conf 中不再写死窗口），共用一个后台；在托盘"显示组件"中开关，选择保存在 settings.json 的 widgets 中。
+  - 数据：每个组件按自己的查询（Query：range / open-tasks / review / long-term）各自加载。修改数据后通过 Tauri 事件 data-changed 通知其他组件刷新；外观偏好通过 localStorage 的 storage 事件跨窗口同步。
+  - 任务支持不设日期（start 为空字符串，月历中不显示）。长期规划对应 Google Tasks 中名为"长期规划"的清单，第一次新建时自动创建。
+  - 验证：前端 48 项、Rust 2 项单元测试；浏览器中用演示数据实测五个视图；发布版冒烟测试：五个窗口的所有者都是 Progman，按 Win+D 后都位于桌面之上。真实账号下的多组件使用尚待用户测试。
+- 下一阶段（计划）：离线修改队列；按 syncToken / updatedMin 增量刷新；可能的增强（四象限拖拽改象限、自定义图标）。
 - 测试注意：`Shell.ToggleDesktop()` 在其他程序抢占前台时不可靠，自动化测试请用模拟 Win+D 按键。PowerShell 向 .NET 的 string 参数传 `$null` 时会变成空字符串，需要用 `[NullString]::Value`。
 
 ## 工作约定

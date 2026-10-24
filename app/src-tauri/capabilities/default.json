@@ -1,9 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "月历组件窗口",
+  "description": "所有组件窗口",
   "windows": [
-    "month"
+    "month",
+    "day",
+    "quadrant",
+    "review",
+    "longterm"
   ],
   "permissions": [
     "core:default",

@@ -1,13 +1,14 @@
 /**
- * 数据源：负责取得某个日期范围内的条目，以及新建、修改、删除和勾选完成任务、新建定时事件。
- * - GoogleSource：Google Calendar（所有勾选显示的日历）+ Google Tasks（除"长期规划"外的清单）
+ * 数据源：按"查询"取得条目，以及任务和事件的增删改。
+ * - GoogleSource：Google Calendar（所有勾选显示的日历）+ Google Tasks
  * - DemoSource：内存中的演示数据（界面预览、--demo 启动）
  * 以后接入 Microsoft/Outlook 时，再实现一个只读数据源并合并结果即可。
  */
 import { addDays, startOfLocalDay } from './date';
-import { GoogleClient, type TokenProvider } from './google';
+import { GoogleClient, type GoogleTaskList, type TokenProvider } from './google';
 import { eventToItem, taskToItem, withTags, TASK_COLOR, type CalendarItem } from './model';
 
+/** Google Tasks 中存放长期规划的清单名 */
 export const LONG_TERM_LIST = '长期规划';
 
 export interface DateRange {
@@ -17,12 +18,36 @@ export interface DateRange {
   end: string;
 }
 
+/** 各组件需要的数据 */
+export type Query =
+  /** 月历、日视图：日期范围内的事件和任务 */
+  | { kind: 'range'; range: DateRange }
+  /** 四象限：所有未完成的任务（不含长期规划），有无日期都要 */
+  | { kind: 'open-tasks' }
+  /** 回顾箱：逾期未完成（日期早于 today）+ completedSince 之后完成的任务 */
+  | { kind: 'review'; today: string; completedSince: string }
+  /** 长期规划清单中的任务 */
+  | { kind: 'long-term' };
+
+export function queryKey(q: Query): string {
+  switch (q.kind) {
+    case 'range':
+      return `range:${q.range.start}:${q.range.end}`;
+    case 'review':
+      return `review:${q.today}`;
+    default:
+      return q.kind;
+  }
+}
+
 export interface Snapshot {
-  range: DateRange;
+  key: string;
   items: CalendarItem[];
   /** 新建任务写入的清单 */
   defaultTaskList: string | null;
-  /** 新建定时事件写入的日历（主日历） */
+  /** 长期规划清单（尚未创建时为 null） */
+  longTermList: string | null;
+  /** 新建定时事件写入的日历（主日历），只在日期范围查询中提供 */
   primaryCalendar: { id: string; color: string } | null;
   fetchedAt: number;
 }
@@ -31,7 +56,8 @@ export interface Snapshot {
 export interface TaskFields {
   title: string;
   notes: string;
-  date: string;
+  /** YYYY-MM-DD；null 表示不设日期 */
+  date: string | null;
   important: boolean;
   urgent: boolean;
 }
@@ -58,6 +84,26 @@ export interface EventFields {
   /** HH:mm，仅定时事件 */
   startTime: string;
   endTime: string;
+}
+
+/** 新任务写入哪里：默认清单，或长期规划清单 */
+export type TaskTarget = 'default' | 'long-term';
+
+export interface DataSource {
+  load(query: Query): Promise<Snapshot>;
+  createTask(target: TaskTarget, task: TaskFields): Promise<CalendarItem>;
+  updateTask(item: CalendarItem, fields: TaskFields & { completed: boolean }): Promise<CalendarItem>;
+  deleteTask(item: CalendarItem): Promise<void>;
+  setCompleted(item: CalendarItem, completed: boolean): Promise<CalendarItem>;
+  createEvent(calendar: { id: string; color: string }, ev: NewEvent): Promise<CalendarItem>;
+  updateEvent(item: CalendarItem, fields: EventFields): Promise<CalendarItem>;
+  deleteEvent(item: CalendarItem): Promise<void>;
+}
+
+/** 定时事件的开始、结束本地日期时间 */
+export function eventSpan(ev: NewEvent): { start: string; end: string } {
+  const endDate = ev.endTime > ev.startTime ? ev.date : addDays(ev.date, 1);
+  return { start: `${ev.date}T${ev.startTime}`, end: `${endDate}T${ev.endTime}` };
 }
 
 /**
@@ -89,58 +135,102 @@ export function eventPatch(item: CalendarItem, f: EventFields, timeZone: string)
   return patch;
 }
 
-export interface DataSource {
-  load(range: DateRange): Promise<Snapshot>;
-  createTask(listId: string, task: TaskFields): Promise<CalendarItem>;
-  updateTask(item: CalendarItem, fields: TaskFields & { completed: boolean }): Promise<CalendarItem>;
-  deleteTask(item: CalendarItem): Promise<void>;
-  setCompleted(item: CalendarItem, completed: boolean): Promise<CalendarItem>;
-  createEvent(calendar: { id: string; color: string }, ev: NewEvent): Promise<CalendarItem>;
-  updateEvent(item: CalendarItem, fields: EventFields): Promise<CalendarItem>;
-  deleteEvent(item: CalendarItem): Promise<void>;
-}
-
-/** 定时事件的开始、结束本地日期时间 */
-export function eventSpan(ev: NewEvent): { start: string; end: string } {
-  const endDate = ev.endTime > ev.startTime ? ev.date : addDays(ev.date, 1);
-  return { start: `${ev.date}T${ev.startTime}`, end: `${endDate}T${ev.endTime}` };
-}
+const notNull = <T>(x: T | null): x is T => x !== null;
 
 export class GoogleSource implements DataSource {
   private readonly api: GoogleClient;
+  /** 最近一次读到的任务清单，用于确定新任务写入哪个清单 */
+  private lists: GoogleTaskList[] | null = null;
 
   constructor(tokens: TokenProvider, fetchImpl?: typeof fetch) {
     this.api = new GoogleClient(tokens, fetchImpl);
   }
 
-  async load(range: DateRange): Promise<Snapshot> {
-    const timeMin = startOfLocalDay(range.start);
-    const timeMax = startOfLocalDay(addDays(range.end, 1));
-    const dueMax = addDays(range.end, 1);
-    const [calendars, lists] = await Promise.all([this.api.calendars(), this.api.taskLists()]);
-    const usable = lists.filter((l) => l.title !== LONG_TERM_LIST);
-    const [eventGroups, taskGroups] = await Promise.all([
-      Promise.all(
-        calendars.map(async (c) =>
-          (await this.api.events(c.id, timeMin, timeMax)).map((e) =>
-            eventToItem(e, c.id, c.backgroundColor ?? '#9aa5ce', c.accessRole === 'owner' || c.accessRole === 'writer'),
-          ),
-        ),
-      ),
-      Promise.all(usable.map(async (l) => (await this.api.tasks(l.id, range.start, dueMax)).map((t) => taskToItem(t, l.id)))),
-    ]);
-    const items = [...eventGroups.flat(), ...taskGroups.flat()].filter((x): x is CalendarItem => x !== null);
-    const primary = calendars.find((c) => c.primary);
+  private async taskLists(): Promise<{ usable: GoogleTaskList[]; longTerm: GoogleTaskList | null }> {
+    this.lists = await this.api.taskLists();
     return {
-      range,
+      usable: this.lists.filter((l) => l.title !== LONG_TERM_LIST),
+      longTerm: this.lists.find((l) => l.title === LONG_TERM_LIST) ?? null,
+    };
+  }
+
+  async load(query: Query): Promise<Snapshot> {
+    const { usable, longTerm } = await this.taskLists();
+    const tasksOf = async (lists: GoogleTaskList[], opts: Parameters<GoogleClient['tasks']>[1]) =>
+      (await Promise.all(lists.map(async (l) => (await this.api.tasks(l.id, opts)).map((t) => taskToItem(t, l.id))))).flat();
+
+    let items: CalendarItem[];
+    let primaryCalendar: Snapshot['primaryCalendar'] = null;
+    switch (query.kind) {
+      case 'range': {
+        const { range } = query;
+        const timeMin = startOfLocalDay(range.start);
+        const timeMax = startOfLocalDay(addDays(range.end, 1));
+        const calendars = await this.api.calendars();
+        const [eventGroups, tasks] = await Promise.all([
+          Promise.all(
+            calendars.map(async (c) =>
+              (await this.api.events(c.id, timeMin, timeMax)).map((e) =>
+                eventToItem(e, c.id, c.backgroundColor ?? '#9aa5ce', c.accessRole === 'owner' || c.accessRole === 'writer'),
+              ),
+            ),
+          ),
+          tasksOf(usable, { dueMin: range.start, dueMax: addDays(range.end, 1) }),
+        ]);
+        items = [...eventGroups.flat(), ...tasks].filter(notNull);
+        const primary = calendars.find((c) => c.primary);
+        primaryCalendar = primary ? { id: primary.id, color: primary.backgroundColor ?? '#9aa5ce' } : null;
+        break;
+      }
+      case 'open-tasks':
+        items = (await tasksOf(usable, { showCompleted: false })).filter(notNull);
+        break;
+      case 'review': {
+        const [overdue, done] = await Promise.all([
+          tasksOf(usable, { showCompleted: false, dueMax: query.today }),
+          tasksOf(usable, { completedMin: query.completedSince }),
+        ]);
+        const byId = new Map<string, CalendarItem>();
+        for (const t of [...overdue, ...done].filter(notNull)) {
+          if (t.completed || (t.start && t.start < query.today)) byId.set(t.id, t);
+        }
+        items = [...byId.values()];
+        break;
+      }
+      case 'long-term':
+        items = longTerm ? (await tasksOf([longTerm], {})).filter(notNull) : [];
+        break;
+    }
+    return {
+      key: queryKey(query),
       items,
       defaultTaskList: usable[0]?.id ?? null,
-      primaryCalendar: primary ? { id: primary.id, color: primary.backgroundColor ?? '#9aa5ce' } : null,
+      longTermList: longTerm?.id ?? null,
+      primaryCalendar,
       fetchedAt: Date.now(),
     };
   }
 
-  async createTask(listId: string, task: TaskFields): Promise<CalendarItem> {
+  /** 确定新任务写入的清单；长期规划清单不存在时自动创建 */
+  private async targetList(target: TaskTarget): Promise<string> {
+    const { usable, longTerm } = this.lists
+      ? {
+          usable: this.lists.filter((l) => l.title !== LONG_TERM_LIST),
+          longTerm: this.lists.find((l) => l.title === LONG_TERM_LIST) ?? null,
+        }
+      : await this.taskLists();
+    if (target === 'long-term') {
+      if (longTerm) return longTerm.id;
+      const created = await this.api.createTaskList(LONG_TERM_LIST);
+      this.lists = [...(this.lists ?? []), created];
+      return created.id;
+    }
+    if (!usable[0]) throw new Error('没有可用的任务清单（请先在 Google Tasks 中建一个清单）');
+    return usable[0].id;
+  }
+
+  async createTask(target: TaskTarget, task: TaskFields): Promise<CalendarItem> {
+    const listId = await this.targetList(target);
     const created = await this.api.createTask(listId, { title: task.title, due: task.date, notes: withTags(task.notes, task) });
     return taskToItem(created, listId)!;
   }
@@ -188,6 +278,9 @@ export class GoogleSource implements DataSource {
   }
 }
 
+const DEMO_LIST = 'demo-list';
+const DEMO_LONG_TERM = 'demo-longterm';
+
 /** 演示数据：以"今天"为中心生成，便于在没有登录时预览界面 */
 export class DemoSource implements DataSource {
   private items: CalendarItem[];
@@ -195,18 +288,20 @@ export class DemoSource implements DataSource {
 
   constructor(todayDate: string) {
     const d = (n: number) => addDays(todayDate, n);
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
     const blank = {
-      completed: false, important: false, urgent: false, link: null, notes: '', location: '', endTime: null, endTimeDate: null,
-      editable: true, recurring: false,
+      completed: false, completedAt: null, important: false, urgent: false, link: null, notes: '', location: '',
+      endTime: null, endTimeDate: null, editable: true, recurring: false,
     };
     const ev = (title: string, start: string, time: string | null, color: string, opts: Partial<CalendarItem> = {}): CalendarItem => ({
       ...blank, kind: 'event', id: `e${++this.seq}`, sourceId: 'demo-cal', title, start, end: start, time, color,
       link: 'https://calendar.google.com/', endTimeDate: time ? start : null, ...opts,
     });
     const task = (title: string, date: string, opts: Partial<CalendarItem> = {}): CalendarItem => ({
-      ...blank, kind: 'task', id: `t${++this.seq}`, sourceId: 'demo-list', title, start: date, end: date, time: null,
+      ...blank, kind: 'task', id: `t${++this.seq}`, sourceId: DEMO_LIST, title, start: date, end: date, time: null,
       color: TASK_COLOR, ...opts,
     });
+    const done = (daysBack: number) => ({ completed: true, completedAt: daysAgo(daysBack) });
     this.items = [
       ev('组会', d(0), '10:00', '#e0af68', { endTime: '11:30', location: 'S2-B3c 会议室', notes: '汇报本周实验进展\n带上测量数据' }),
       ev('实验室安全培训', d(2), '14:30', '#9ece6a', { endTime: '16:00' }),
@@ -215,24 +310,52 @@ export class DemoSource implements DataSource {
       ev('每周例会', d(7), '09:30', '#e0af68', { endTime: '10:00', recurring: true }),
       ev('导师 1:1', d(-3), '16:00', '#e0af68', { endTime: '16:30' }),
       ev('牙医', d(9), '09:15', '#f7768e', { endTime: '10:00' }),
+      ev('午餐讨论', d(0), '12:30', '#9ece6a', { endTime: '13:30' }),
+      ev('样品测试', d(0), '15:00', '#7dcfff', { endTime: '17:00' }),
       task('写周报', d(0), { important: true, urgent: true, notes: '本周进展、下周计划' }),
       task('读两篇论文', d(0), { important: true }),
       task('报销发票', d(-2), { urgent: true }),
-      task('整理实验数据', d(-1), { completed: true }),
+      task('整理实验数据', d(-1), done(1)),
       task('准备组会 PPT', d(1), { important: true }),
       task('回复合作者邮件', d(3)),
-      task('交材料给 IT', d(-6), { completed: true }),
+      task('交材料给 IT', d(-6), done(5)),
       task('订机票', d(4), { urgent: true }),
+      task('更新实验记录本', d(-4)),
+      task('学习新的拟合方法', '', { important: true }),
+      task('整理桌面文件', ''),
+      task('续签门禁卡', '', { urgent: true }),
+      task('完成第一篇论文初稿', '', { sourceId: DEMO_LONG_TERM, important: true, notes: '目标：明年 3 月投稿' }),
+      task('学会使用 COMSOL 多物理场耦合', '', { sourceId: DEMO_LONG_TERM }),
+      task('每周跑步三次', '', { sourceId: DEMO_LONG_TERM }),
+      task('考取潜水证', '', { sourceId: DEMO_LONG_TERM, ...done(10) }),
     ];
   }
 
-  async load(range: DateRange): Promise<Snapshot> {
-    const items = this.items.filter((i) => i.end >= range.start && i.start <= range.end);
+  async load(query: Query): Promise<Snapshot> {
+    const tasks = this.items.filter((i) => i.kind === 'task' && i.sourceId !== DEMO_LONG_TERM);
+    let items: CalendarItem[];
+    switch (query.kind) {
+      case 'range':
+        items = this.items.filter((i) => i.sourceId !== DEMO_LONG_TERM && i.start && i.end >= query.range.start && i.start <= query.range.end);
+        break;
+      case 'open-tasks':
+        items = tasks.filter((t) => !t.completed);
+        break;
+      case 'review':
+        items = tasks.filter(
+          (t) => (!t.completed && t.start && t.start < query.today) || (t.completed && (t.completedAt ?? '') >= query.completedSince),
+        );
+        break;
+      case 'long-term':
+        items = this.items.filter((i) => i.sourceId === DEMO_LONG_TERM);
+        break;
+    }
     return {
-      range,
+      key: queryKey(query),
       items: structuredClone(items),
-      defaultTaskList: 'demo-list',
-      primaryCalendar: { id: 'demo-cal', color: '#e0af68' },
+      defaultTaskList: DEMO_LIST,
+      longTermList: DEMO_LONG_TERM,
+      primaryCalendar: query.kind === 'range' ? { id: 'demo-cal', color: '#e0af68' } : null,
       fetchedAt: Date.now(),
     };
   }
@@ -244,16 +367,20 @@ export class DemoSource implements DataSource {
     return structuredClone(item);
   }
 
-  async createTask(listId: string, t: TaskFields): Promise<CalendarItem> {
+  async createTask(target: TaskTarget, t: TaskFields): Promise<CalendarItem> {
     return this.put({
-      kind: 'task', id: `t${++this.seq}`, sourceId: listId, title: t.title, start: t.date, end: t.date, time: null, endTime: null,
-      color: TASK_COLOR, completed: false, important: t.important, urgent: t.urgent, link: null, notes: t.notes, location: '',
-      endTimeDate: null, editable: true, recurring: false,
+      kind: 'task', id: `t${++this.seq}`, sourceId: target === 'long-term' ? DEMO_LONG_TERM : DEMO_LIST, title: t.title,
+      start: t.date ?? '', end: t.date ?? '', time: null, endTime: null, endTimeDate: null, color: TASK_COLOR, completed: false,
+      completedAt: null, important: t.important, urgent: t.urgent, link: null, notes: t.notes, location: '', editable: true,
+      recurring: false,
     });
   }
 
   async updateTask(item: CalendarItem, f: TaskFields & { completed: boolean }): Promise<CalendarItem> {
-    return this.put({ ...item, title: f.title, notes: f.notes, start: f.date, end: f.date, important: f.important, urgent: f.urgent, completed: f.completed });
+    return this.put({
+      ...item, title: f.title, notes: f.notes, start: f.date ?? '', end: f.date ?? '', important: f.important, urgent: f.urgent,
+      completed: f.completed, completedAt: f.completed ? (item.completedAt ?? new Date().toISOString()) : null,
+    });
   }
 
   async deleteTask(item: CalendarItem): Promise<void> {
@@ -261,7 +388,7 @@ export class DemoSource implements DataSource {
   }
 
   async setCompleted(item: CalendarItem, completed: boolean): Promise<CalendarItem> {
-    return this.put({ ...item, completed });
+    return this.put({ ...item, completed, completedAt: completed ? new Date().toISOString() : null });
   }
 
   async createEvent(calendar: { id: string; color: string }, ev: NewEvent): Promise<CalendarItem> {
@@ -269,7 +396,7 @@ export class DemoSource implements DataSource {
     return this.put({
       kind: 'event', id: `e${++this.seq}`, sourceId: calendar.id, title: ev.title, start: ev.date, end: span.end.slice(0, 10),
       time: ev.startTime, endTime: ev.endTime, endTimeDate: span.end.slice(0, 10), color: calendar.color, completed: false,
-      important: false, urgent: false, link: null, notes: ev.notes, location: '', editable: true, recurring: false,
+      completedAt: null, important: false, urgent: false, link: null, notes: ev.notes, location: '', editable: true, recurring: false,
     });
   }
 
@@ -292,14 +419,14 @@ export class DemoSource implements DataSource {
   }
 }
 
-// v3：条目新增 endTimeDate / editable / recurring 字段
-const CACHE_PREFIX = 'deskcalendar.cache.v3:';
+// v4：按查询缓存；条目新增 completedAt，任务可以没有日期
+const CACHE_PREFIX = 'deskcalendar.cache.v4:';
 
 /** 本地缓存：启动时先显示上次的数据，离线时也能看 */
 export const cache = {
-  read(range: DateRange): Snapshot | null {
+  read(query: Query): Snapshot | null {
     try {
-      const raw = localStorage.getItem(CACHE_PREFIX + range.start);
+      const raw = localStorage.getItem(CACHE_PREFIX + queryKey(query));
       return raw ? (JSON.parse(raw) as Snapshot) : null;
     } catch {
       return null;
@@ -307,7 +434,7 @@ export const cache = {
   },
   write(snapshot: Snapshot): void {
     try {
-      localStorage.setItem(CACHE_PREFIX + snapshot.range.start, JSON.stringify(snapshot));
+      localStorage.setItem(CACHE_PREFIX + snapshot.key, JSON.stringify(snapshot));
     } catch {
       // 存储已满或不可用时忽略
     }
