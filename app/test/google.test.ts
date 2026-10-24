@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError, GoogleClient } from '../src/google';
-import { taskToItem } from '../src/model';
-import { eventSpan, GoogleSource } from '../src/source';
+import { eventToItem, taskToItem } from '../src/model';
+import { eventPatch, eventSpan, GoogleSource, type EventFields } from '../src/source';
 
 interface Call {
   method: string;
@@ -164,5 +164,63 @@ describe('编辑、删除任务与新建事件', () => {
       end: { dateTime: '2026-10-24T15:30:00', timeZone: 'Asia/Singapore' },
     });
     expect(item).toMatchObject({ kind: 'event', title: '组会', start: '2026-10-24', time: '14:00', endTime: '15:30', color: '#123', notes: '带数据' });
+  });
+});
+
+describe('编辑与删除事件', () => {
+  const timed = () =>
+    eventToItem(
+      {
+        id: 'e1', summary: '组会', description: '<b>议程</b>', location: '会议室',
+        start: { dateTime: '2026-10-24T10:00:00+08:00' }, end: { dateTime: '2026-10-24T11:00:00+08:00' },
+      },
+      'cal',
+      '#123',
+      true,
+    )!;
+  const fields = (p: Partial<EventFields> = {}): EventFields => ({
+    title: '组会', notes: '议程', location: '会议室', allDay: false,
+    startDate: '2026-10-24', endDate: '2026-10-24', startTime: '10:00', endTime: '11:00', ...p,
+  });
+
+  it('没有修改时补丁为空；说明没动就不发送（保留 Google 中的富文本）', () => {
+    expect(eventPatch(timed(), fields(), 'Asia/Singapore')).toEqual({});
+    expect(eventPatch(timed(), fields({ title: '组会（改）' }), 'Asia/Singapore')).toEqual({ summary: '组会（改）' });
+  });
+
+  it('改时间：发送本地时间 + 时区，并清掉全天字段', () => {
+    expect(eventPatch(timed(), fields({ startTime: '14:00', endTime: '15:30' }), 'Asia/Singapore')).toEqual({
+      start: { dateTime: '2026-10-24T14:00:00', timeZone: 'Asia/Singapore', date: null },
+      end: { dateTime: '2026-10-24T15:30:00', timeZone: 'Asia/Singapore', date: null },
+    });
+  });
+
+  it('改成全天（跨两天）：end.date 为最后一天的次日，并清掉定时字段', () => {
+    expect(eventPatch(timed(), fields({ allDay: true, endDate: '2026-10-25' }), 'Asia/Singapore')).toEqual({
+      start: { date: '2026-10-24', dateTime: null, timeZone: null },
+      end: { date: '2026-10-26', dateTime: null, timeZone: null },
+    });
+  });
+
+  it('GoogleSource.updateEvent 发送 PATCH 并返回新条目；无修改时不发请求；deleteEvent 发送 DELETE', async () => {
+    const t = tokens();
+    const { impl, calls } = fakeFetch({
+      'PATCH /calendars/cal/events/e1': (c) => ({
+        body: {
+          id: 'e1', summary: (c.body as { summary?: string }).summary ?? '组会', location: '会议室', organizer: { self: true },
+          start: { dateTime: '2026-10-24T10:00:00+08:00' }, end: { dateTime: '2026-10-24T11:00:00+08:00' },
+        },
+      }),
+      'DELETE /calendars/cal/events/e1': () => ({ status: 204 }),
+    });
+    const source = new GoogleSource(t.provider, impl);
+    const item = timed();
+    expect(await source.updateEvent(item, fields())).toBe(item);
+    expect(calls).toHaveLength(0);
+    const updated = await source.updateEvent(item, fields({ title: '组会（改）' }));
+    expect(calls[0]).toMatchObject({ method: 'PATCH', body: { summary: '组会（改）' } });
+    expect(updated).toMatchObject({ title: '组会（改）', editable: true, color: '#123' });
+    await source.deleteEvent(item);
+    expect(calls[1]!.method).toBe('DELETE');
   });
 });

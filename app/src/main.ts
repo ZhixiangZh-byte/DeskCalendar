@@ -270,7 +270,7 @@ function taskPanel(item: CalendarItem): string {
       </div>
       <p class="panel-error" hidden></p>
       <div class="row">
-        <button type="button" class="danger" data-act="delete-task">删除</button>
+        <button type="button" class="danger" data-act="delete-item">删除</button>
         ${item.link ? '<button type="button" data-act="open-link">在 Google 中打开</button>' : ''}
         <span class="spacer"></span>
         <button type="button" data-act="close-overlay">取消</button>
@@ -279,10 +279,12 @@ function taskPanel(item: CalendarItem): string {
     </form>`;
 }
 
-function eventPanel(item: CalendarItem): string {
+/** 只读事件（别人组织的会议、只读日历）：只显示信息 */
+function eventView(item: CalendarItem): string {
   let when: string;
   if (item.time) {
-    when = `${fmtDate(item.start)} ${item.time}${item.endTime ? `–${item.end !== item.start ? `${fmtDate(item.end)} ` : ''}${item.endTime}` : ''}`;
+    const endDate = item.endTimeDate ?? item.start;
+    when = `${fmtDate(item.start)} ${item.time}${item.endTime ? `–${endDate !== item.start ? `${fmtDate(endDate)} ` : ''}${item.endTime}` : ''}`;
   } else {
     when = item.end !== item.start ? `${fmtDate(item.start)} – ${fmtDate(item.end)}（全天）` : `${fmtDate(item.start)}（全天）`;
   }
@@ -292,12 +294,54 @@ function eventPanel(item: CalendarItem): string {
       <div class="meta">${esc(when)}</div>
       ${item.location ? `<div class="meta">地点：${esc(item.location)}</div>` : ''}
       ${item.notes ? `<div class="desc">${esc(item.notes)}</div>` : ''}
+      <p class="muted small">此日程来自只读日历，或是别人组织的会议，只能在这里查看。</p>
       <div class="row">
         <span class="spacer"></span>
         ${item.link ? '<button type="button" data-act="open-link">在 Google 日历中打开</button>' : ''}
         <button type="button" class="primary" data-act="close-overlay">关闭</button>
       </div>
     </div>`;
+}
+
+/** 可编辑的事件：标题、全天/定时、起止日期时间、地点、说明 */
+function eventForm(item: CalendarItem): string {
+  const allDay = item.time === null;
+  const endDate = allDay ? item.end : (item.endTimeDate ?? item.start);
+  const startTime = item.time ?? '09:00';
+  const endTime = item.endTime ?? plusHour(startTime);
+  return `
+    <form class="panel event-detail${allDay ? ' all-day' : ''}" data-form="event" data-id="${esc(item.id)}">
+      <div class="row">
+        <span class="swatch" style="--c:${esc(item.color)}"></span>
+        <span class="muted small">Google 日历事件</span>
+        <span class="spacer"></span>
+        <label class="toggle"><input type="checkbox" name="allDay" data-input="all-day" ${allDay ? 'checked' : ''} />全天</label>
+      </div>
+      <input name="title" value="${esc(item.title)}" placeholder="标题" autocomplete="off" maxlength="500" />
+      <div class="when-grid">
+        <span class="muted">开始</span>
+        <input type="date" name="startDate" value="${item.start}" data-input="start-date" required />
+        <input type="time" name="startTime" value="${startTime}" class="time-only" data-input="start-time" />
+        <span class="muted">结束</span>
+        <input type="date" name="endDate" value="${endDate}" required />
+        <input type="time" name="end" value="${endTime}" class="time-only" />
+      </div>
+      <input name="location" value="${esc(item.location)}" placeholder="地点（可选）" autocomplete="off" maxlength="500" />
+      <textarea name="notes" rows="3" placeholder="说明（可选）" maxlength="8000">${esc(item.notes)}</textarea>
+      ${item.recurring ? '<p class="muted small">这是重复日程中的一次，修改或删除只影响这一次。</p>' : ''}
+      <p class="panel-error" hidden></p>
+      <div class="row">
+        <button type="button" class="danger" data-act="delete-item">删除</button>
+        ${item.link ? '<button type="button" data-act="open-link">在 Google 日历中打开</button>' : ''}
+        <span class="spacer"></span>
+        <button type="button" data-act="close-overlay">取消</button>
+        <button type="submit" class="primary">保存</button>
+      </div>
+    </form>`;
+}
+
+function eventPanel(item: CalendarItem): string {
+  return item.editable ? eventForm(item) : eventView(item);
 }
 
 function settingsPanel(): string {
@@ -512,11 +556,43 @@ async function submitTask(form: HTMLFormElement): Promise<void> {
   });
 }
 
-async function deleteTask(button: HTMLButtonElement): Promise<void> {
+async function submitEvent(form: HTMLFormElement): Promise<void> {
+  const item = findItem(form.dataset.id ?? '');
+  if (!item || !state.source) return;
+  const data = new FormData(form);
+  const title = String(data.get('title') ?? '').trim();
+  if (!title) return panelError('请填写标题');
+  const allDay = data.get('allDay') === 'on';
+  const startDate = String(data.get('startDate') ?? '');
+  const endDate = String(data.get('endDate') ?? '');
+  const startTime = String(data.get('startTime') || '09:00');
+  const endTime = String(data.get('end') || plusHour(startTime));
+  if (!startDate || !endDate) return panelError('请填写日期');
+  if (allDay ? endDate < startDate : `${endDate}T${endTime}` <= `${startDate}T${startTime}`) {
+    return panelError('结束时间必须晚于开始时间');
+  }
+  const source = state.source;
+  await withBusy(form, async () => {
+    const updated = await source.updateEvent(item, {
+      title,
+      notes: String(data.get('notes') ?? '').trim(),
+      location: String(data.get('location') ?? '').trim(),
+      allDay,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+    });
+    replaceItem(item.id, updated);
+    openOverlay(null);
+  });
+}
+
+/** 删除任务或事件；第一次点击只是确认 */
+async function deleteItem(button: HTMLButtonElement): Promise<void> {
   const form = button.closest('form')!;
   const item = findItem(form.dataset.id ?? '');
   if (!item || !state.source) return;
-  // 第一次点击只是确认
   if (button.dataset.confirm !== '1') {
     button.dataset.confirm = '1';
     button.textContent = '再点一次确认删除';
@@ -524,7 +600,7 @@ async function deleteTask(button: HTMLButtonElement): Promise<void> {
   }
   const source = state.source;
   await withBusy(form, async () => {
-    await source.deleteTask(item);
+    await (item.kind === 'task' ? source.deleteTask(item) : source.deleteEvent(item));
     updateItems((items) => items.filter((i) => i.id !== item.id));
     openOverlay(null);
   });
@@ -581,8 +657,8 @@ app.addEventListener('click', (ev) => {
       if (link) void host.open(link);
       break;
     }
-    case 'delete-task':
-      void deleteTask(el as HTMLButtonElement);
+    case 'delete-item':
+      void deleteItem(el as HTMLButtonElement);
       break;
     case 'add':
       openOverlay({ type: 'add', date: el.dataset.date! });
@@ -602,6 +678,7 @@ app.addEventListener('submit', (ev) => {
   const form = ev.target as HTMLFormElement;
   if (form.dataset.form === 'add') void submitAdd(form);
   else if (form.dataset.form === 'task') void submitTask(form);
+  else if (form.dataset.form === 'event') void submitEvent(form);
 });
 
 app.addEventListener('input', (ev) => {
@@ -637,6 +714,16 @@ app.addEventListener('input', (ev) => {
       // 修改开始时间时，结束时间保持 1 小时后
       const end = el.form!.querySelector<HTMLInputElement>('input[name=end]')!;
       if (el.value) end.value = plusHour(el.value);
+      break;
+    }
+    case 'all-day':
+      // 切换全天：隐藏或显示时间输入
+      el.form!.classList.toggle('all-day', el.checked);
+      break;
+    case 'start-date': {
+      // 开始日期移到结束日期之后时，结束日期跟着移动
+      const end = el.form!.querySelector<HTMLInputElement>('input[name=endDate]')!;
+      if (el.value && end.value < el.value) end.value = el.value;
       break;
     }
   }

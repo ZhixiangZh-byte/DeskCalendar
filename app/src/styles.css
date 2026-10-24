@@ -296,3 +296,18 @@ button.danger[data-confirm="1"] { background: var(--danger); color: #fff; }
 .signin-body .path { font-family: Consolas, monospace; font-size: 11px; color: var(--muted); word-break: break-all; }
 .signin-body .error { color: var(--danger); }
 .signin-body button.primary { margin-top: 10px; padding: 6px 18px; font-size: 13px; }
+
+/* 事件编辑：开始 / 结束两行，全天时隐藏时间 */
+.when-grid { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 6px 8px; }
+.when-grid input { min-width: 0; }
+.event-detail.all-day .time-only { display: none; }
+.event-detail.all-day .when-grid { grid-template-columns: auto 1fr; }
+.panel input[name=location] {
+  font: inherit;
+  color: inherit;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  outline: none;
+}

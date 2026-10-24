@@ -157,6 +157,19 @@ export class GoogleClient {
     });
   }
 
+  /** 修改事件（只发送传入的字段）。全天与定时互相转换时，用 null 清掉另一种时间字段 */
+  patchEvent(calendarId: string, eventId: string, patch: Record<string, unknown>): Promise<GoogleEvent> {
+    return this.request<GoogleEvent>(
+      'PATCH',
+      `${CAL}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      patch,
+    );
+  }
+
+  async deleteEvent(calendarId: string, eventId: string): Promise<void> {
+    await this.request('DELETE', `${CAL}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`);
+  }
+
   setTaskCompleted(listId: string, taskId: string, completed: boolean): Promise<GoogleTask> {
     return this.request<GoogleTask>(
       'PATCH',

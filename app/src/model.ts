@@ -21,6 +21,8 @@ export interface CalendarItem {
   time: string | null;
   /** 结束时间 HH:mm（定时事件） */
   endTime: string | null;
+  /** 结束时刻所在的本地日期（定时事件；可能与 end 不同，如结束于次日 00:00） */
+  endTimeDate: string | null;
   color: string;
   completed: boolean;
   important: boolean;
@@ -31,6 +33,10 @@ export interface CalendarItem {
   notes: string;
   /** 事件地点 */
   location: string;
+  /** 能否在组件里修改：任务总是可以；事件要求日历可写，且由自己组织或允许嘉宾修改 */
+  editable: boolean;
+  /** 重复事件中的一次（修改只影响这一次） */
+  recurring: boolean;
 }
 
 export const TASK_COLOR = '#7aa2f7';
@@ -84,6 +90,9 @@ export interface GoogleEvent {
   htmlLink?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
+  organizer?: { self?: boolean };
+  guestsCanModify?: boolean;
+  recurringEventId?: string;
 }
 
 /** Google Tasks 任务（只列出用到的字段） */
@@ -98,12 +107,14 @@ export interface GoogleTask {
   webViewLink?: string;
 }
 
-export function eventToItem(ev: GoogleEvent, calendarId: string, color: string): CalendarItem | null {
+/** writable：所在日历是否可写（accessRole 为 owner 或 writer） */
+export function eventToItem(ev: GoogleEvent, calendarId: string, color: string, writable = false): CalendarItem | null {
   if (ev.status === 'cancelled' || !ev.start || !ev.end) return null;
   let start: string;
   let end: string;
   let time: string | null = null;
   let endTime: string | null = null;
+  let endTimeDate: string | null = null;
   if (ev.start.date && ev.end.date) {
     // 全天事件：end.date 不含当天
     start = ev.start.date;
@@ -114,6 +125,7 @@ export function eventToItem(ev: GoogleEvent, calendarId: string, color: string):
     start = s.date;
     time = s.time;
     endTime = e.time;
+    endTimeDate = e.date;
     // 结束于次日 00:00 的事件不算占用次日
     end = e.time === '00:00' && e.date > s.date ? addDays(e.date, -1) : e.date;
   } else {
@@ -129,6 +141,7 @@ export function eventToItem(ev: GoogleEvent, calendarId: string, color: string):
     end,
     time,
     endTime,
+    endTimeDate,
     color,
     completed: false,
     important: false,
@@ -136,6 +149,9 @@ export function eventToItem(ev: GoogleEvent, calendarId: string, color: string):
     link: ev.htmlLink ?? null,
     notes: htmlToText(ev.description ?? ''),
     location: ev.location?.trim() ?? '',
+    // 别人组织的会议即使在自己可写的日历上，修改也不会同步给组织者，所以视为只读
+    editable: writable && (ev.organizer === undefined || ev.organizer.self === true || ev.guestsCanModify === true),
+    recurring: Boolean(ev.recurringEventId),
   };
 }
 
@@ -154,6 +170,7 @@ export function taskToItem(t: GoogleTask, listId: string): CalendarItem | null {
     end: date,
     time: null,
     endTime: null,
+    endTimeDate: null,
     color: TASK_COLOR,
     completed: t.status === 'completed',
     important: tags.important,
@@ -161,6 +178,8 @@ export function taskToItem(t: GoogleTask, listId: string): CalendarItem | null {
     link: t.webViewLink ?? null,
     notes: tags.body,
     location: '',
+    editable: true,
+    recurring: false,
   };
 }
 

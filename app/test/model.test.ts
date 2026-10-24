@@ -66,6 +66,25 @@ describe('事件转换', () => {
     expect(item).toMatchObject({ time: '10:00', endTime: '11:30', location: 'S2 会议室', notes: '议程\n进展' });
   });
 
+  it('可编辑：日历可写，且由自己组织或允许嘉宾修改；重复事件的单次有标记', () => {
+    const base = { id: 'e', start: { date: '2026-10-24' }, end: { date: '2026-10-25' } };
+    expect(eventToItem(base, 'c', '', true)!.editable).toBe(true);
+    expect(eventToItem(base, 'c', '', false)!.editable).toBe(false);
+    expect(eventToItem({ ...base, organizer: { self: true } }, 'c', '', true)!.editable).toBe(true);
+    expect(eventToItem({ ...base, organizer: {} }, 'c', '', true)!.editable).toBe(false);
+    expect(eventToItem({ ...base, organizer: {}, guestsCanModify: true }, 'c', '', true)!.editable).toBe(true);
+    expect(eventToItem({ ...base, recurringEventId: 'r' }, 'c', '', true)!.recurring).toBe(true);
+  });
+
+  it('定时事件记录结束时刻所在日期（结束于次日 00:00 时与 end 不同）', () => {
+    const item = eventToItem(
+      { id: 'e', start: { dateTime: '2026-10-24T22:00:00+08:00' }, end: { dateTime: '2026-10-25T00:00:00+08:00' } },
+      'c',
+      '',
+    );
+    expect(item).toMatchObject({ end: '2026-10-24', endTime: '00:00', endTimeDate: '2026-10-25' });
+  });
+
   it('全天事件：end.date 不含当天', () => {
     const item = eventToItem({ id: 'e', summary: '会议', start: { date: '2026-10-24' }, end: { date: '2026-10-25' } }, 'cal', '#fff');
     expect(item).toMatchObject({ kind: 'event', start: '2026-10-24', end: '2026-10-24', time: null, title: '会议' });
@@ -124,7 +143,7 @@ describe('任务转换', () => {
 describe('同一天内的排序', () => {
   const base = (p: Partial<CalendarItem>): CalendarItem => ({
     kind: 'task', id: p.title ?? 'x', sourceId: 's', title: 'x', start: '2026-10-24', end: '2026-10-24', time: null, endTime: null,
-    color: '', completed: false, important: false, urgent: false, link: null, notes: '', location: '', ...p,
+    color: '', completed: false, important: false, urgent: false, link: null, notes: '', location: '', endTimeDate: null, editable: true, recurring: false, ...p,
   });
 
   it('全天事件 → 定时事件 → 未完成任务（重要紧急优先）→ 已完成任务', () => {

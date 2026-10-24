@@ -46,6 +46,49 @@ export interface NewEvent {
   endTime: string;
 }
 
+/** 编辑事件时的内容 */
+export interface EventFields {
+  title: string;
+  notes: string;
+  location: string;
+  allDay: boolean;
+  startDate: string;
+  /** 全天事件：最后一天（含）；定时事件：结束时刻所在日期 */
+  endDate: string;
+  /** HH:mm，仅定时事件 */
+  startTime: string;
+  endTime: string;
+}
+
+/**
+ * 生成事件的 PATCH 内容，只包含相对原条目有变化的字段。
+ * 说明（description）没改就不发送，避免把 Google 里的富文本覆盖成纯文本。
+ */
+export function eventPatch(item: CalendarItem, f: EventFields, timeZone: string): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  if (f.title !== item.title) patch.summary = f.title;
+  if (f.notes !== item.notes) patch.description = f.notes;
+  if (f.location !== item.location) patch.location = f.location;
+  const wasAllDay = item.time === null;
+  const timeChanged =
+    f.allDay !== wasAllDay ||
+    f.startDate !== item.start ||
+    (f.allDay
+      ? f.endDate !== item.end
+      : f.startTime !== item.time || f.endTime !== item.endTime || f.endDate !== item.endTimeDate);
+  if (timeChanged) {
+    if (f.allDay) {
+      // 全天事件的 end.date 不含当天
+      patch.start = { date: f.startDate, dateTime: null, timeZone: null };
+      patch.end = { date: addDays(f.endDate, 1), dateTime: null, timeZone: null };
+    } else {
+      patch.start = { dateTime: `${f.startDate}T${f.startTime}:00`, timeZone, date: null };
+      patch.end = { dateTime: `${f.endDate}T${f.endTime}:00`, timeZone, date: null };
+    }
+  }
+  return patch;
+}
+
 export interface DataSource {
   load(range: DateRange): Promise<Snapshot>;
   createTask(listId: string, task: TaskFields): Promise<CalendarItem>;
@@ -53,6 +96,8 @@ export interface DataSource {
   deleteTask(item: CalendarItem): Promise<void>;
   setCompleted(item: CalendarItem, completed: boolean): Promise<CalendarItem>;
   createEvent(calendar: { id: string; color: string }, ev: NewEvent): Promise<CalendarItem>;
+  updateEvent(item: CalendarItem, fields: EventFields): Promise<CalendarItem>;
+  deleteEvent(item: CalendarItem): Promise<void>;
 }
 
 /** 定时事件的开始、结束本地日期时间 */
@@ -77,7 +122,9 @@ export class GoogleSource implements DataSource {
     const [eventGroups, taskGroups] = await Promise.all([
       Promise.all(
         calendars.map(async (c) =>
-          (await this.api.events(c.id, timeMin, timeMax)).map((e) => eventToItem(e, c.id, c.backgroundColor ?? '#9aa5ce')),
+          (await this.api.events(c.id, timeMin, timeMax)).map((e) =>
+            eventToItem(e, c.id, c.backgroundColor ?? '#9aa5ce', c.accessRole === 'owner' || c.accessRole === 'writer'),
+          ),
         ),
       ),
       Promise.all(usable.map(async (l) => (await this.api.tasks(l.id, range.start, dueMax)).map((t) => taskToItem(t, l.id)))),
@@ -126,7 +173,18 @@ export class GoogleSource implements DataSource {
       end: span.end,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
-    return eventToItem(created, calendar.id, calendar.color)!;
+    return eventToItem(created, calendar.id, calendar.color, true)!;
+  }
+
+  async updateEvent(item: CalendarItem, f: EventFields): Promise<CalendarItem> {
+    const patch = eventPatch(item, f, Intl.DateTimeFormat().resolvedOptions().timeZone);
+    if (Object.keys(patch).length === 0) return item;
+    const updated = await this.api.patchEvent(item.sourceId, item.id, patch);
+    return eventToItem(updated, item.sourceId, item.color, true) ?? item;
+  }
+
+  deleteEvent(item: CalendarItem): Promise<void> {
+    return this.api.deleteEvent(item.sourceId, item.id);
   }
 }
 
@@ -137,10 +195,13 @@ export class DemoSource implements DataSource {
 
   constructor(todayDate: string) {
     const d = (n: number) => addDays(todayDate, n);
-    const blank = { completed: false, important: false, urgent: false, link: null, notes: '', location: '', endTime: null };
+    const blank = {
+      completed: false, important: false, urgent: false, link: null, notes: '', location: '', endTime: null, endTimeDate: null,
+      editable: true, recurring: false,
+    };
     const ev = (title: string, start: string, time: string | null, color: string, opts: Partial<CalendarItem> = {}): CalendarItem => ({
       ...blank, kind: 'event', id: `e${++this.seq}`, sourceId: 'demo-cal', title, start, end: start, time, color,
-      link: 'https://calendar.google.com/', ...opts,
+      link: 'https://calendar.google.com/', endTimeDate: time ? start : null, ...opts,
     });
     const task = (title: string, date: string, opts: Partial<CalendarItem> = {}): CalendarItem => ({
       ...blank, kind: 'task', id: `t${++this.seq}`, sourceId: 'demo-list', title, start: date, end: date, time: null,
@@ -150,6 +211,8 @@ export class DemoSource implements DataSource {
       ev('组会', d(0), '10:00', '#e0af68', { endTime: '11:30', location: 'S2-B3c 会议室', notes: '汇报本周实验进展\n带上测量数据' }),
       ev('实验室安全培训', d(2), '14:30', '#9ece6a', { endTime: '16:00' }),
       ev('学术会议', d(5), null, '#bb9af7', { end: d(7), location: '新加坡国立大学' }),
+      ev('学院讲座（他人组织）', d(1), '15:00', '#7dcfff', { endTime: '16:00', editable: false }),
+      ev('每周例会', d(7), '09:30', '#e0af68', { endTime: '10:00', recurring: true }),
       ev('导师 1:1', d(-3), '16:00', '#e0af68', { endTime: '16:30' }),
       ev('牙医', d(9), '09:15', '#f7768e', { endTime: '10:00' }),
       task('写周报', d(0), { important: true, urgent: true, notes: '本周进展、下周计划' }),
@@ -185,6 +248,7 @@ export class DemoSource implements DataSource {
     return this.put({
       kind: 'task', id: `t${++this.seq}`, sourceId: listId, title: t.title, start: t.date, end: t.date, time: null, endTime: null,
       color: TASK_COLOR, completed: false, important: t.important, urgent: t.urgent, link: null, notes: t.notes, location: '',
+      endTimeDate: null, editable: true, recurring: false,
     });
   }
 
@@ -204,14 +268,32 @@ export class DemoSource implements DataSource {
     const span = eventSpan(ev);
     return this.put({
       kind: 'event', id: `e${++this.seq}`, sourceId: calendar.id, title: ev.title, start: ev.date, end: span.end.slice(0, 10),
-      time: ev.startTime, endTime: ev.endTime, color: calendar.color, completed: false, important: false, urgent: false,
-      link: null, notes: ev.notes, location: '',
+      time: ev.startTime, endTime: ev.endTime, endTimeDate: span.end.slice(0, 10), color: calendar.color, completed: false,
+      important: false, urgent: false, link: null, notes: ev.notes, location: '', editable: true, recurring: false,
     });
+  }
+
+  async updateEvent(item: CalendarItem, f: EventFields): Promise<CalendarItem> {
+    return this.put({
+      ...item,
+      title: f.title,
+      notes: f.notes,
+      location: f.location,
+      start: f.startDate,
+      end: f.allDay ? f.endDate : f.endTime === '00:00' && f.endDate > f.startDate ? addDays(f.endDate, -1) : f.endDate,
+      time: f.allDay ? null : f.startTime,
+      endTime: f.allDay ? null : f.endTime,
+      endTimeDate: f.allDay ? null : f.endDate,
+    });
+  }
+
+  async deleteEvent(item: CalendarItem): Promise<void> {
+    this.items = this.items.filter((i) => i.id !== item.id);
   }
 }
 
-// v2：条目新增 endTime / location 字段
-const CACHE_PREFIX = 'deskcalendar.cache.v2:';
+// v3：条目新增 endTimeDate / editable / recurring 字段
+const CACHE_PREFIX = 'deskcalendar.cache.v3:';
 
 /** 本地缓存：启动时先显示上次的数据，离线时也能看 */
 export const cache = {
