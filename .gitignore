@@ -1,0 +1,8 @@
+node_modules/
+target/
+dist/
+*.log
+# 本机密钥与验证报告（报告不含令牌，但含账户统计信息）
+*.client.json
+google-oauth-client.json
+feasibility/google/report.json

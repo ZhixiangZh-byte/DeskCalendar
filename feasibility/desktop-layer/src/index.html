@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>DeskCalendar 桌面层原型</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+  <body>
+    <main id="card">
+      <header data-tauri-drag-region>⠿ 拖动这里移动 · 桌面层原型</header>
+      <dl>
+        <dt>模式</dt><dd id="mode">…</dd>
+        <dt>宿主</dt><dd id="host">…</dd>
+      </dl>
+      <button id="counter">点击测试：0</button>
+      <input id="text" placeholder="输入测试：在这里打字" />
+      <p id="echo">（输入内容会显示在这里）</p>
+      <label>背景不透明度 <input id="opacity" type="range" min="10" max="100" value="70" /></label>
+      <button id="through">鼠标穿透 5 秒</button>
+      <p class="hint">按 Win+D 显示桌面，本卡片应仍然可见；右下角可拖动调整大小。</p>
+    </main>
+  </body>
+</html>
