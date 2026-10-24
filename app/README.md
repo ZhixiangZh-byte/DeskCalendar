@@ -61,6 +61,7 @@ npm run check                                 # 类型检查 + 单元测试（Vi
 npm run dev                                   # 只启动界面，浏览器中用演示数据预览（?view=day 等切换视图）
 npm run tauri build -- --debug --no-bundle    # 调试版 exe（带控制台窗口）
 npm run tauri build -- --no-bundle            # 发布版 exe
+npm run tauri build                           # 发布版 + NSIS 安装包（见根目录 INSTALL.md）
 ```
 
 - 启动参数：`--demo` 使用演示数据，不登录 Google；`--widgets=month,day,...` 本次运行显示指定组件（不改动保存的选择）。

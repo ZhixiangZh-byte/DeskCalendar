@@ -77,7 +77,14 @@
   - 修复一（预缓存）：refresh 成功后执行 warmUp，在后台为所有组件的默认查询取数据并缓存，每个查询最多 30 分钟取一次，用 navigator.locks 'deskcalendar-warm' 保证只有一个组件在取。
   - 修复二（离线兜底）：cache.readOrDerive 在自己没有缓存时，从所有缓存中按 matchesQuery 挑出条目（derived: true，不写回缓存，fullAt 为 0 以保证联网后全量刷新）。
   - 演示模式不使用缓存，所以这部分只有单元测试（75 项），真实环境待用户验证。
-- 下一阶段（可选）：二十四节气。
+- 用户确认开发完成（2026-10-24）：功能全部满足需求，以后发现问题再调整。
+- **打包（1.0.0）**：
+  - NSIS 安装包，只为当前用户安装，不需要管理员权限；内置 WebView2 引导程序；见根目录 `INSTALL.md`。
+  - 可选内嵌 OAuth 客户端：构建时设置 `DESKCALENDAR_OAUTH_CLIENT`，由 build.rs 嵌入。运行时优先使用本机的客户端文件，其次使用嵌入的客户端。
+  - 用户自用的安装包已内嵌客户端，不要公开发布这样的安装包。
+  - 不要从 Claude 里运行安装包：会被 MSIX 重定向到 Claude 的私有目录。
+- `docs/`：GitHub Pages 用的主页、隐私政策、服务条款草稿（含 Limited Use 声明，联系邮箱和仓库地址待填）。
+- 可选的后续：二十四节气。
 - 测试注意：`Shell.ToggleDesktop()` 在其他程序抢占前台时不可靠，自动化测试请用模拟 Win+D 按键。PowerShell 向 .NET 的 string 参数传 `$null` 时会变成空字符串，需要用 `[NullString]::Value`。
 
 ## 工作约定

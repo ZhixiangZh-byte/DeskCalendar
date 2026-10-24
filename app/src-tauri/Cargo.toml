@@ -1,6 +1,6 @@
 [package]
 name = "deskcalendar"
-version = "0.1.0"
+version = "1.0.0"
 description = "DeskCalendar：基于 Google Calendar / Tasks 的 Windows 桌面月历组件"
 authors = ["Guanyu Zhang"]
 edition = "2024"
@@ -11,6 +11,7 @@ name = "deskcalendar_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+serde_json = "1"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]

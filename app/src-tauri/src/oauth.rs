@@ -84,14 +84,34 @@ pub fn client_file_path() -> PathBuf {
     home.join(".deskcalendar").join("google-oauth-client.json")
 }
 
-fn load_client() -> Result<ClientInfo, AuthError> {
-    let path = client_file_path();
-    let text = std::fs::read_to_string(&path)
-        .map_err(|_| AuthError::new("NO_CLIENT_FILE", format!("找不到 OAuth 客户端文件：{}", path.display())))?;
+/// 构建时通过 DESKCALENDAR_OAUTH_CLIENT 嵌入的客户端（见 build.rs）；没有嵌入时为空字符串
+const EMBEDDED_CLIENT: &str = include_str!(concat!(env!("OUT_DIR"), "/embedded_oauth_client.json"));
+
+/// 本机有客户端文件，或程序中嵌入了客户端
+pub fn client_available() -> bool {
+    client_file_path().is_file() || !EMBEDDED_CLIENT.trim().is_empty()
+}
+
+/// 优先使用本机的客户端文件（便于更换），没有时使用嵌入的客户端
+fn resolve_client(file: Option<String>, embedded: &str) -> Result<ClientInfo, AuthError> {
+    let text = match file {
+        Some(t) => t,
+        None if !embedded.trim().is_empty() => embedded.to_string(),
+        None => {
+            return Err(AuthError::new(
+                "NO_CLIENT_FILE",
+                format!("找不到 OAuth 客户端文件：{}", client_file_path().display()),
+            ));
+        }
+    };
     serde_json::from_str::<ClientFile>(&text)
         .ok()
         .and_then(|f| f.installed)
         .ok_or_else(|| AuthError::new("NO_CLIENT_FILE", "OAuth 客户端文件格式不对：需要“桌面应用”类型（installed）"))
+}
+
+fn load_client() -> Result<ClientInfo, AuthError> {
+    resolve_client(std::fs::read_to_string(client_file_path()).ok(), EMBEDDED_CLIENT)
 }
 
 fn keyring_entry() -> Result<keyring::Entry, AuthError> {
@@ -299,6 +319,16 @@ mod tests {
     fn pkce_matches_rfc7636_example() {
         // RFC 7636 附录 B 的示例
         assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+    }
+
+    #[test]
+    fn client_file_takes_precedence_over_embedded() {
+        let file = r#"{"installed":{"client_id":"from-file","client_secret":"s1"}}"#;
+        let embedded = r#"{"installed":{"client_id":"embedded","client_secret":"s2"}}"#;
+        assert_eq!(resolve_client(Some(file.into()), embedded).ok().map(|c| c.client_id), Some("from-file".into()));
+        assert_eq!(resolve_client(None, embedded).ok().map(|c| c.client_id), Some("embedded".into()));
+        assert_eq!(resolve_client(None, "").err().map(|e| e.code), Some("NO_CLIENT_FILE"));
+        assert_eq!(resolve_client(Some(r#"{"web":{}}"#.into()), "").err().map(|e| e.code), Some("NO_CLIENT_FILE"));
     }
 
     #[test]

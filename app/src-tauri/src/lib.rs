@@ -226,7 +226,7 @@ fn auth_status(state: State<AppState>) -> AuthStatus {
     AuthStatus {
         demo: state.demo,
         signed_in: oauth::is_signed_in(),
-        client_file: path.is_file(),
+        client_file: oauth::client_available(),
         client_path: path.display().to_string(),
     }
 }

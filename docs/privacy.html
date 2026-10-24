@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DeskCalendar · Privacy Policy</title>
+  <link rel="icon" href="icon.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <header><img src="icon.png" alt="" /><h1>Privacy Policy</h1></header>
+  <p class="muted">Effective date: 2026-10-24 · <a href="index.html">DeskCalendar home</a></p>
+
+  <h2>Summary</h2>
+  <p>DeskCalendar is a desktop application that runs on your own computer. It connects directly to Google Calendar and Google Tasks
+  using your Google account. <strong>There is no DeskCalendar server, and the developer does not collect, receive, store, sell or share
+  any of your data.</strong></p>
+
+  <h2>Google user data the app accesses</h2>
+  <ul>
+    <li><code>calendar.calendarlist.readonly</code>: the list of calendars you have selected, to know which calendars to display.</li>
+    <li><code>calendar.events</code>: read events to display them; create, edit or delete events only when you do so in the app.</li>
+    <li><code>tasks</code>: read tasks to display them; create, edit, complete or delete tasks only when you do so in the app.</li>
+  </ul>
+
+  <h2>How the data is used and stored</h2>
+  <ul>
+    <li>Data is used only to show your calendar and tasks in the widgets and to apply the changes you make.</li>
+    <li>A cache of recently displayed events and tasks, and a queue of changes made while offline, are stored locally on your computer
+      (WebView2 local storage) so that the widgets keep working offline.</li>
+    <li>The OAuth refresh token is stored in Windows Credential Manager on your computer. Access tokens are kept only in memory.</li>
+    <li>No analytics, advertising or tracking. No data is transmitted anywhere except to Google's APIs.</li>
+  </ul>
+
+  <h2>Limited Use disclosure</h2>
+  <p>DeskCalendar's use and transfer of information received from Google APIs to any other app will adhere to the
+  <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+  including the Limited Use requirements.</p>
+
+  <h2>Removing your data</h2>
+  <ul>
+    <li>Use "Sign out of Google" in the app (settings or tray menu): the refresh token is revoked and removed, and local caches are cleared.</li>
+    <li>You can also revoke access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+    <li>Uninstalling the app removes the program; local caches live in your Windows user profile.</li>
+  </ul>
+
+  <h2>隐私政策（中文摘要）</h2>
+  <p>DeskCalendar 只在你的电脑上运行，直接连接 Google Calendar 和 Google Tasks。没有任何开发者服务器，开发者不会收集、接收、保存、出售或分享你的任何数据。
+  程序只为显示你的日程和任务、执行你做的修改而读写数据；缓存和离线修改队列保存在你的电脑上，登录凭据保存在 Windows 凭据管理器中。
+  对 Google API 数据的使用遵守 Google API Services User Data Policy（包括 Limited Use 要求）。
+  退出登录会撤销并删除授权；也可以随时在 Google 账号的"第三方访问"页面撤销。</p>
+
+  <h2>Changes and contact</h2>
+  <p>If this policy changes, the updated version will be published on this page. Questions: {{CONTACT_EMAIL}}.</p>
+  <footer>© 2026 Guanyu Zhang</footer>
+</main>
+</body>
+</html>
