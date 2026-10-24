@@ -9,11 +9,13 @@ export interface Prefs {
   /** 背景不透明度 0.2–1 */
   opacity: number;
   showCompleted: boolean;
+  /** 在日期旁显示农历和传统节日 */
+  showLunar: boolean;
   theme: Theme;
 }
 
 const PREFS_KEY = 'deskcalendar.prefs.v1';
-const DEFAULTS: Prefs = { opacity: 0.72, showCompleted: true, theme: 'system' };
+const DEFAULTS: Prefs = { opacity: 0.72, showCompleted: true, showLunar: true, theme: 'system' };
 
 function read(): Prefs {
   try {

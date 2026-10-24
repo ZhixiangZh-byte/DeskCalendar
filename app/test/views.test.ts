@@ -90,7 +90,7 @@ describe('五个视图都能用演示数据渲染', () => {
     expect(view.id).toBe(id);
     const today = '2026-10-24';
     const source = new DemoSource(today);
-    const ctx = { today, snapshot: null, showCompleted: true };
+    const ctx = { today, snapshot: null, showCompleted: true, showLunar: true };
     const snapshot = await source.load(view.query(ctx));
     const html = view.render({ ...ctx, snapshot });
     expect(html.length).toBeGreaterThan(100);

@@ -421,3 +421,10 @@ h2 .count { color: var(--muted); font-weight: 400; font-size: 11px; }
 
 /* 四象限里的分组已经表示了重要/紧急，不再重复显示圆点 */
 .quadrant-body .tag { display: none; }
+
+/* ---------- 农历 ---------- */
+.day-head { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.lunar { min-width: 0; font-size: 10px; color: var(--muted); opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lunar.festival { color: var(--imp); opacity: 1; }
+.lunar-line { flex: none; font-size: 11px; color: var(--muted); padding: 0 4px 1px; }
+.lunar-line .festival { color: var(--imp); }

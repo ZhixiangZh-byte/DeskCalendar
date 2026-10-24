@@ -51,7 +51,15 @@
   - 数据：每个组件按自己的查询（Query：range / open-tasks / review / long-term）各自加载。修改数据后通过 Tauri 事件 data-changed 通知其他组件刷新；外观偏好通过 localStorage 的 storage 事件跨窗口同步。
   - 任务支持不设日期（start 为空字符串，月历中不显示）。长期规划对应 Google Tasks 中名为"长期规划"的清单，第一次新建时自动创建。
   - 验证：前端 48 项、Rust 2 项单元测试；浏览器中用演示数据实测五个视图；发布版冒烟测试：五个窗口的所有者都是 Progman，按 Win+D 后都位于桌面之上。真实账号下的多组件使用尚待用户测试。
-- 下一阶段（计划）：离线修改队列；按 syncToken / updatedMin 增量刷新；可能的增强（四象限拖拽改象限、自定义图标）。
+- 用户已用真实账号测试通过第四阶段全部功能（2026-10-24）。
+- **图标与农历（2026-10-24）**：
+  - 应用图标由仓库根目录的 `calender_2.png` 生成。
+  - 农历用 Intl 中国历换算。ICU 在带年份时输出中文月名，`parseMonth` 同时兼容数字和中文两种格式。月历格子和日视图显示农历，设置里可以关闭（prefs.showLunar，默认开启）。
+  - 只标传统节日，暂不含二十四节气。
+  - 测试增至 63 项。
+  - 坑：换图标后 tauri-build 不会自动重新嵌入 exe 图标，需要修改 build.rs 的时间戳。
+- 用户明确不需要：四象限拖拽改象限。
+- 下一阶段（计划）：离线修改队列；按 syncToken / updatedMin 增量刷新；可选：二十四节气。
 - 测试注意：`Shell.ToggleDesktop()` 在其他程序抢占前台时不可靠，自动化测试请用模拟 Win+D 按键。PowerShell 向 .NET 的 string 参数传 `$null` 时会变成空字符串，需要用 `[NullString]::Value`。
 
 ## 工作约定

@@ -3,6 +3,7 @@
  * 每个视图决定要查询什么数据、顶栏标题和导航，以及主体怎么渲染；数据加载和交互由 main.ts 统一处理。
  */
 import { addDays, localDateTime, today as todayOf } from './date';
+import { lunarFestival, lunarFull, lunarLabel } from './lunar';
 import { compareItems, type CalendarItem } from './model';
 import { buildMonth, monthRange, shiftMonth } from './month';
 import type { Query, Snapshot } from './source';
@@ -14,6 +15,7 @@ export interface ViewCtx {
   today: string;
   snapshot: Snapshot | null;
   showCompleted: boolean;
+  showLunar: boolean;
 }
 
 export interface View {
@@ -32,6 +34,22 @@ export interface View {
 }
 
 const items = (ctx: ViewCtx) => ctx.snapshot?.items ?? [];
+
+// ---------- 农历 ----------
+
+/** 月历格子里的农历短标签（节日高亮） */
+function lunarHtml(date: string): string {
+  const l = lunarLabel(date);
+  return l ? `<span class="lunar${l.festival ? ' festival' : ''}">${l.text}</span>` : '';
+}
+
+/** 日视图顶部的农历行，如"农历 丙午马年 九月十五 · 中秋节" */
+function lunarLine(date: string): string {
+  const full = lunarFull(date);
+  if (!full) return '';
+  const festival = lunarFestival(date);
+  return `<div class="lunar-line">农历 ${full}${festival ? ` · <span class="festival">${festival}</span>` : ''}</div>`;
+}
 
 // ---------- 月历 ----------
 
@@ -74,7 +92,7 @@ function monthView(): View {
         .map(
           (d) => `
           <div class="day${d.inMonth ? '' : ' out'}${d.isToday ? ' today' : ''}${d.weekend ? ' weekend' : ''}" data-act="add" data-date="${d.date}">
-            <span class="num">${d.day}</span>
+            <div class="day-head"><span class="num">${d.day}</span>${ctx.showLunar ? lunarHtml(d.date) : ''}</div>
             <ul class="items">${d.items.map((i) => monthItemHtml(i, d.date)).join('')}</ul>
           </div>`,
         )
@@ -190,6 +208,7 @@ function dayView(): View {
         })
         .join('');
       return `
+        ${ctx.showLunar ? lunarLine(date) : ''}
         <div class="allday" data-scroll="allday" data-act="add" data-date="${date}">
           ${allDay.length ? `<ul class="list">${allDay.map((i) => rowHtml(i)).join('')}</ul>` : '<p class="empty">没有全天日程或任务</p>'}
         </div>

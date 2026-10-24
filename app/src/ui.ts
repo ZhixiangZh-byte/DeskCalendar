@@ -214,6 +214,7 @@ export function settingsPanel(opts: { locked: boolean; demo: boolean }): string 
         <input type="range" min="20" max="100" value="${Math.round(prefs.opacity * 100)}" data-input="opacity" />
       </label>
       <label class="field check-field"><input type="checkbox" data-input="show-completed" ${prefs.showCompleted ? 'checked' : ''} />显示已完成的任务</label>
+      <label class="field check-field"><input type="checkbox" data-input="show-lunar" ${prefs.showLunar ? 'checked' : ''} />显示农历和传统节日</label>
       <label class="field check-field"><input type="checkbox" data-input="locked" ${opts.locked ? 'checked' : ''} />锁定位置和大小</label>
       <p class="muted small">显示其他组件（日视图、四象限、回顾箱、长期规划）、开机自启、全局鼠标穿透：托盘图标右键菜单。</p>
       <div class="row">

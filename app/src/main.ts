@@ -47,7 +47,12 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 document.title = `DeskCalendar ${view.name}`;
 
 const drag = () => (state.locked ? '' : 'data-tauri-drag-region');
-const ctx = (): ViewCtx => ({ today: state.today, snapshot: state.snapshot, showCompleted: prefs.showCompleted });
+const ctx = (): ViewCtx => ({
+  today: state.today,
+  snapshot: state.snapshot,
+  showCompleted: prefs.showCompleted,
+  showLunar: prefs.showLunar,
+});
 
 // ---------- 登录界面 ----------
 
@@ -496,6 +501,11 @@ app.addEventListener('input', (ev) => {
       break;
     case 'show-completed':
       prefs.showCompleted = el.checked;
+      savePrefs();
+      renderBody();
+      break;
+    case 'show-lunar':
+      prefs.showLunar = el.checked;
       savePrefs();
       renderBody();
       break;
