@@ -125,6 +125,38 @@ export class GoogleClient {
     });
   }
 
+  /** 修改任务；due 为 YYYY-MM-DD；completed 不传时不改变完成状态 */
+  updateTask(
+    listId: string,
+    taskId: string,
+    patch: { title: string; notes: string; due: string; completed?: boolean },
+  ): Promise<GoogleTask> {
+    const status =
+      patch.completed === undefined ? {} : patch.completed ? { status: 'completed' } : { status: 'needsAction', completed: null };
+    return this.request<GoogleTask>(
+      'PATCH',
+      `${TASKS}/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`,
+      { title: patch.title, notes: patch.notes, due: `${patch.due}T00:00:00.000Z`, ...status },
+    );
+  }
+
+  async deleteTask(listId: string, taskId: string): Promise<void> {
+    await this.request('DELETE', `${TASKS}/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`);
+  }
+
+  /** 新建定时事件。时间为本地日期时间（YYYY-MM-DDTHH:mm），timeZone 为 IANA 时区名 */
+  createEvent(
+    calendarId: string,
+    ev: { summary: string; description: string; start: string; end: string; timeZone: string },
+  ): Promise<GoogleEvent> {
+    return this.request<GoogleEvent>('POST', `${CAL}/calendars/${encodeURIComponent(calendarId)}/events`, {
+      summary: ev.summary,
+      ...(ev.description ? { description: ev.description } : {}),
+      start: { dateTime: `${ev.start}:00`, timeZone: ev.timeZone },
+      end: { dateTime: `${ev.end}:00`, timeZone: ev.timeZone },
+    });
+  }
+
   setTaskCompleted(listId: string, taskId: string, completed: boolean): Promise<GoogleTask> {
     return this.request<GoogleTask>(
       'PATCH',

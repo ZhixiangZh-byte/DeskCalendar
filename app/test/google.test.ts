@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError, GoogleClient } from '../src/google';
-import { GoogleSource } from '../src/source';
+import { taskToItem } from '../src/model';
+import { eventSpan, GoogleSource } from '../src/source';
 
 interface Call {
   method: string;
@@ -107,6 +108,7 @@ describe('GoogleSource', () => {
     });
     const snap = await new GoogleSource(t.provider, impl).load({ start: '2026-09-28', end: '2026-11-08' });
     expect(snap.defaultTaskList).toBe('l1');
+    expect(snap.primaryCalendar).toEqual({ id: 'primary@x', color: '#123456' });
     expect(snap.items.map((i) => [i.kind, i.title, i.start, i.time, i.urgent])).toEqual([
       ['event', '组会', '2026-10-24', '10:00', false],
       ['task', '写周报', '2026-10-24', null, true],
@@ -118,5 +120,49 @@ describe('GoogleSource', () => {
     expect(taskCall.url.searchParams.get('dueMax')).toBe('2026-11-09T00:00:00.000Z');
     const evCall = calls.find((c) => c.url.pathname.endsWith('/events'))!;
     expect(evCall.url.searchParams.get('timeMin')).toBe('2026-09-27T16:00:00.000Z');
+  });
+});
+
+describe('编辑、删除任务与新建事件', () => {
+  it('修改任务：标签写回备注末尾；完成状态没变时不发送 status', async () => {
+    const t = tokens();
+    const { impl, calls } = fakeFetch({
+      'PATCH /lists/l1/tasks/t1': (c) => ({ body: { id: 't1', due: '2026-10-25T00:00:00.000Z', ...(c.body as object) } }),
+    });
+    const source = new GoogleSource(t.provider, impl);
+    const item = taskToItem({ id: 't1', title: '旧', due: '2026-10-24T00:00:00.000Z', status: 'needsAction' }, 'l1')!;
+    const updated = await source.updateTask(item, { title: '新', notes: '详情', date: '2026-10-25', important: true, urgent: false, completed: false });
+    expect(calls[0]!.body).toEqual({ title: '新', notes: '详情\n#重要', due: '2026-10-25T00:00:00.000Z' });
+    expect(updated).toMatchObject({ title: '新', notes: '详情', important: true, start: '2026-10-25' });
+
+    await source.updateTask(updated, { title: '新', notes: '', date: '2026-10-25', important: false, urgent: false, completed: true });
+    expect(calls[1]!.body).toEqual({ title: '新', notes: '', due: '2026-10-25T00:00:00.000Z', status: 'completed' });
+  });
+
+  it('删除任务', async () => {
+    const t = tokens();
+    const { impl, calls } = fakeFetch({ 'DELETE /lists/l1/tasks/t1': () => ({ status: 204 }) });
+    await new GoogleClient(t.provider, impl).deleteTask('l1', 't1');
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(['DELETE /tasks/v1/lists/l1/tasks/t1']);
+  });
+
+  it('新建定时事件：本地时间 + 时区名；结束时间不晚于开始时间时视为次日', async () => {
+    expect(eventSpan({ title: 'x', notes: '', date: '2026-10-24', startTime: '23:00', endTime: '00:30' })).toEqual({
+      start: '2026-10-24T23:00',
+      end: '2026-10-25T00:30',
+    });
+    const t = tokens();
+    const { impl, calls } = fakeFetch({
+      'POST /calendars/primary%40x/events': (c) => ({ body: { id: 'e1', htmlLink: 'https://x', ...(c.body as object) } }),
+    });
+    const source = new GoogleSource(t.provider, impl);
+    const item = await source.createEvent({ id: 'primary@x', color: '#123' }, { title: '组会', notes: '带数据', date: '2026-10-24', startTime: '14:00', endTime: '15:30' });
+    expect(calls[0]!.body).toEqual({
+      summary: '组会',
+      description: '带数据',
+      start: { dateTime: '2026-10-24T14:00:00', timeZone: 'Asia/Singapore' },
+      end: { dateTime: '2026-10-24T15:30:00', timeZone: 'Asia/Singapore' },
+    });
+    expect(item).toMatchObject({ kind: 'event', title: '组会', start: '2026-10-24', time: '14:00', endTime: '15:30', color: '#123', notes: '带数据' });
   });
 });

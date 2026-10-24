@@ -87,6 +87,7 @@ fn apply_click_through(app: &AppHandle, on: bool) {
     if let Some(t) = state.tray.lock().unwrap().as_ref() {
         let _ = t.through.set_checked(on);
     }
+    let _ = app.emit("click-through-changed", on);
 }
 
 #[derive(Serialize)]
@@ -132,6 +133,16 @@ async fn access_token(auth: State<'_, Auth>) -> Result<String, AuthError> {
 async fn invalidate_token(auth: State<'_, Auth>) -> Result<(), ()> {
     auth.invalidate().await;
     Ok(())
+}
+
+/// 鼠标穿透 seconds 秒后自动恢复（顶栏按钮）。期间组件点不到，所以由后台计时恢复
+#[tauri::command]
+fn click_through_for(app: AppHandle, seconds: u64) {
+    apply_click_through(&app, true);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(seconds.clamp(1, 60)));
+        apply_click_through(&app, false);
+    });
 }
 
 #[tauri::command]
@@ -237,7 +248,8 @@ pub fn run() {
             access_token,
             invalidate_token,
             get_locked,
-            set_locked
+            set_locked,
+            click_through_for
         ])
         .setup(|app| {
             let handle = app.handle().clone();

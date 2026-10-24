@@ -19,14 +19,18 @@ export interface CalendarItem {
   end: string;
   /** 开始时间 HH:mm；全天事件和任务为 null */
   time: string | null;
+  /** 结束时间 HH:mm（定时事件） */
+  endTime: string | null;
   color: string;
   completed: boolean;
   important: boolean;
   urgent: boolean;
   /** 在 Google 网页中打开的链接 */
   link: string | null;
-  /** 任务备注（不含末尾标签行） */
+  /** 任务备注（不含末尾标签行）或事件说明（纯文本） */
   notes: string;
+  /** 事件地点 */
+  location: string;
 }
 
 export const TASK_COLOR = '#7aa2f7';
@@ -47,6 +51,21 @@ export function parseTags(notes: string | undefined): { body: string; important:
   };
 }
 
+/**
+ * 解析快速输入的标题：末尾的感叹号（半角 ! 或全角 ！）表示四象限标记。
+ * 1 个 = 重要，2 个 = 紧急，3 个及以上 = 重要且紧急。
+ */
+export function parseQuickTitle(input: string): { title: string; important: boolean; urgent: boolean } {
+  const m = /[!！]+$/.exec(input.trimEnd());
+  if (!m) return { title: input.trim(), important: false, urgent: false };
+  const n = m[0].length;
+  return {
+    title: input.trimEnd().slice(0, -n).trim(),
+    important: n === 1 || n >= 3,
+    urgent: n >= 2,
+  };
+}
+
 /** 生成带标签行的备注（没有标签时不追加） */
 export function withTags(body: string, tags: { important: boolean; urgent: boolean }): string {
   const parts = [tags.important && TAG_IMPORTANT, tags.urgent && TAG_URGENT].filter(Boolean);
@@ -60,6 +79,8 @@ export interface GoogleEvent {
   id: string;
   status?: string;
   summary?: string;
+  description?: string;
+  location?: string;
   htmlLink?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
@@ -82,6 +103,7 @@ export function eventToItem(ev: GoogleEvent, calendarId: string, color: string):
   let start: string;
   let end: string;
   let time: string | null = null;
+  let endTime: string | null = null;
   if (ev.start.date && ev.end.date) {
     // 全天事件：end.date 不含当天
     start = ev.start.date;
@@ -91,6 +113,7 @@ export function eventToItem(ev: GoogleEvent, calendarId: string, color: string):
     const e = localDateTime(new Date(ev.end.dateTime));
     start = s.date;
     time = s.time;
+    endTime = e.time;
     // 结束于次日 00:00 的事件不算占用次日
     end = e.time === '00:00' && e.date > s.date ? addDays(e.date, -1) : e.date;
   } else {
@@ -105,12 +128,14 @@ export function eventToItem(ev: GoogleEvent, calendarId: string, color: string):
     start,
     end,
     time,
+    endTime,
     color,
     completed: false,
     important: false,
     urgent: false,
     link: ev.htmlLink ?? null,
-    notes: '',
+    notes: htmlToText(ev.description ?? ''),
+    location: ev.location?.trim() ?? '',
   };
 }
 
@@ -128,13 +153,32 @@ export function taskToItem(t: GoogleTask, listId: string): CalendarItem | null {
     start: date,
     end: date,
     time: null,
+    endTime: null,
     color: TASK_COLOR,
     completed: t.status === 'completed',
     important: tags.important,
     urgent: tags.urgent,
     link: t.webViewLink ?? null,
     notes: tags.body,
+    location: '',
   };
+}
+
+/** Google 日历的事件说明可能含 HTML；转成纯文本用于显示 */
+export function htmlToText(html: string): string {
+  if (!/<[a-z!/]/i.test(html)) return html.trim();
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**

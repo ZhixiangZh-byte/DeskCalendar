@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareItems, eventToItem, parseTags, taskToItem, withTags, type CalendarItem } from '../src/model';
+import { compareItems, eventToItem, htmlToText, parseQuickTitle, parseTags, taskToItem, withTags, type CalendarItem } from '../src/model';
 
 describe('四象限标签', () => {
   it('解析末尾标签行', () => {
@@ -30,7 +30,42 @@ describe('四象限标签', () => {
   });
 });
 
+describe('标题末尾的感叹号标记', () => {
+  it('1 个 = 重要，2 个 = 紧急，3 个及以上 = 重要且紧急；半角全角都可以', () => {
+    expect(parseQuickTitle('写周报!')).toEqual({ title: '写周报', important: true, urgent: false });
+    expect(parseQuickTitle('写周报！！')).toEqual({ title: '写周报', important: false, urgent: true });
+    expect(parseQuickTitle('写周报!！!')).toEqual({ title: '写周报', important: true, urgent: true });
+    expect(parseQuickTitle('写周报 !!!! ')).toEqual({ title: '写周报', important: true, urgent: true });
+  });
+
+  it('没有感叹号或感叹号不在末尾时不算标记', () => {
+    expect(parseQuickTitle('  买菜  ')).toEqual({ title: '买菜', important: false, urgent: false });
+    expect(parseQuickTitle('Hello! 世界')).toEqual({ title: 'Hello! 世界', important: false, urgent: false });
+    expect(parseQuickTitle('!!')).toEqual({ title: '', important: false, urgent: true });
+  });
+});
+
+describe('事件说明转纯文本', () => {
+  it('去掉 HTML 标签、换行、实体；纯文本原样保留', () => {
+    expect(htmlToText('第一行<br>第二行<br/><b>加粗</b> &amp; &lt;x&gt;')).toBe('第一行\n第二行\n加粗 & <x>');
+    expect(htmlToText('<p>段落一</p><p>段落二</p>')).toBe('段落一\n段落二');
+    expect(htmlToText('  a < b 的普通文字 ')).toBe('a < b 的普通文字');
+  });
+});
+
 describe('事件转换', () => {
+  it('定时事件带结束时间、地点和说明', () => {
+    const item = eventToItem(
+      {
+        id: 'e', summary: '组会', location: ' S2 会议室 ', description: '议程<br>进展',
+        start: { dateTime: '2026-10-24T10:00:00+08:00' }, end: { dateTime: '2026-10-24T11:30:00+08:00' },
+      },
+      'cal',
+      '#fff',
+    );
+    expect(item).toMatchObject({ time: '10:00', endTime: '11:30', location: 'S2 会议室', notes: '议程\n进展' });
+  });
+
   it('全天事件：end.date 不含当天', () => {
     const item = eventToItem({ id: 'e', summary: '会议', start: { date: '2026-10-24' }, end: { date: '2026-10-25' } }, 'cal', '#fff');
     expect(item).toMatchObject({ kind: 'event', start: '2026-10-24', end: '2026-10-24', time: null, title: '会议' });
@@ -88,8 +123,8 @@ describe('任务转换', () => {
 
 describe('同一天内的排序', () => {
   const base = (p: Partial<CalendarItem>): CalendarItem => ({
-    kind: 'task', id: p.title ?? 'x', sourceId: 's', title: 'x', start: '2026-10-24', end: '2026-10-24', time: null,
-    color: '', completed: false, important: false, urgent: false, link: null, notes: '', ...p,
+    kind: 'task', id: p.title ?? 'x', sourceId: 's', title: 'x', start: '2026-10-24', end: '2026-10-24', time: null, endTime: null,
+    color: '', completed: false, important: false, urgent: false, link: null, notes: '', location: '', ...p,
   });
 
   it('全天事件 → 定时事件 → 未完成任务（重要紧急优先）→ 已完成任务', () => {

@@ -3,8 +3,8 @@ import type { CalendarItem } from '../src/model';
 import { buildMonth, monthRange, shiftMonth } from '../src/month';
 
 const item = (p: Partial<CalendarItem>): CalendarItem => ({
-  kind: 'task', id: p.title ?? 'x', sourceId: 's', title: 'x', start: '2026-10-24', end: p.start ?? '2026-10-24', time: null,
-  color: '', completed: false, important: false, urgent: false, link: null, notes: '', ...p,
+  kind: 'task', id: p.title ?? 'x', sourceId: 's', title: 'x', start: '2026-10-24', end: p.start ?? '2026-10-24', time: null, endTime: null,
+  color: '', completed: false, important: false, urgent: false, link: null, notes: '', location: '', ...p,
 });
 
 describe('月历网格', () => {

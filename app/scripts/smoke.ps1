@@ -1,5 +1,6 @@
 ﻿# 冒烟测试：以演示数据启动组件，检查窗口存在、所有者是桌面窗口、按 Win+D（显示桌面）后仍可见。
-# 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke.ps1
+# 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke.ps1 [-Release]
+param([switch]$Release)
 Add-Type @"
 using System;
 using System.Text;
@@ -22,7 +23,7 @@ public static class W {
 "@
 [void][W]::SetProcessDPIAware()
 
-$exe = Join-Path $PSScriptRoot '..\src-tauri\target\debug\DeskCalendar.exe'
+$exe = Join-Path $PSScriptRoot "..\src-tauri\target\$(if ($Release) { 'release' } else { 'debug' })\DeskCalendar.exe"
 $proc = Start-Process -FilePath $exe -ArgumentList '--demo' -PassThru
 $hwnd = [IntPtr]::Zero
 for ($i = 0; $i -lt 60 -and $hwnd -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 250; $hwnd = [W]::FindWindow([NullString]::Value, 'DeskCalendar 月历') }

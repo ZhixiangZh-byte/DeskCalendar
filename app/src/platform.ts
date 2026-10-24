@@ -30,6 +30,7 @@ export const host = {
   invalidateToken: () => invoke<void>('invalidate_token'),
   getLocked: (): Promise<boolean> => (inTauri ? invoke<boolean>('get_locked') : Promise.resolve(false)),
   setLocked: (locked: boolean) => (inTauri ? invoke<void>('set_locked', { locked }) : Promise.resolve()),
+  clickThroughFor: (seconds: number) => (inTauri ? invoke<void>('click_through_for', { seconds }) : Promise.resolve()),
   open: (url: string) => (inTauri ? openUrl(url) : Promise.resolve(void window.open(url, '_blank'))),
   on: <T>(event: string, cb: (payload: T) => void) => (inTauri ? listen<T>(event, (e) => cb(e.payload)) : Promise.resolve(() => {})),
 };
