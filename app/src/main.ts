@@ -8,7 +8,8 @@ import { ApiError } from './google';
 import { parseQuickTitle, type CalendarItem } from './model';
 import { host, inTauri, isAuthError, type AuthStatus } from './platform';
 import { applyAppearance, prefs, savePrefs, watchPrefs, type Theme } from './prefs';
-import { cache, DemoSource, GoogleSource, type DataSource, type Snapshot } from './source';
+import { applyPending, executeOp, flushOutbox, LONG_TERM_PLACEHOLDER, newTempId, outbox, targetId, type PendingOp } from './outbox';
+import { cache, DemoSource, GoogleSource, withCompleted, type DataSource, type Snapshot } from './source';
 import { addPanel, eventPanel, esc, ICONS, plusHour, settingsPanel, taskPanel, type AddOptions } from './ui';
 import { createView, HOUR_PX, type ViewCtx } from './views';
 
@@ -49,7 +50,7 @@ document.title = `DeskCalendar ${view.name}`;
 const drag = () => (state.locked ? '' : 'data-tauri-drag-region');
 const ctx = (): ViewCtx => ({
   today: state.today,
-  snapshot: state.snapshot,
+  snapshot: shownSnapshot(),
   showCompleted: prefs.showCompleted,
   showLunar: prefs.showLunar,
 });
@@ -109,6 +110,12 @@ function statusTitle(): string {
   }
 }
 
+/** 待同步的离线修改数 */
+function pendingBadge(): string {
+  const n = outbox.list().length;
+  return n ? `<span class="pending-count" title="${n} 项修改保存在本地，联网后自动同步">${n}</span>` : '';
+}
+
 function renderBar(): void {
   const bar = document.querySelector('#bar');
   if (!bar) return;
@@ -124,6 +131,7 @@ function renderBar(): void {
       ${state.auth?.demo ? '<span class="badge">演示数据</span>' : ''}
       <span class="spacer" ${drag()}></span>
       <span class="status ${state.status}" title="${esc(statusTitle())}"></span>
+      ${pendingBadge()}
       <button class="icon" data-act="refresh" title="刷新">${ICONS.refresh}</button>
       <button class="icon" data-act="passthrough" title="鼠标穿透 ${CLICK_THROUGH_SECONDS} 秒（期间可点击组件后面的桌面图标）">${ICONS.through}</button>
       <button class="icon" data-act="settings" title="设置">${ICONS.settings}</button>
@@ -184,23 +192,64 @@ function setStatus(status: SyncStatus, message = ''): void {
 
 // ---------- 数据 ----------
 
+/** 当前视图的查询（不依赖已显示的数据） */
+function currentQuery() {
+  return view.query({ today: state.today, snapshot: state.snapshot, showCompleted: prefs.showCompleted, showLunar: prefs.showLunar });
+}
+
+/** 显示用的数据：已取回的条目叠加尚未同步的离线修改 */
+function shownSnapshot(): Snapshot | null {
+  const s = state.snapshot;
+  if (!s) return null;
+  const ops = outbox.list();
+  if (!ops.length) return s;
+  return { ...s, items: applyPending(s.items, ops, currentQuery(), s.longTermList ?? LONG_TERM_PLACEHOLDER) };
+}
+
 async function refresh(): Promise<void> {
   const source = state.source;
   if (!source) return;
   state.today = today();
-  const query = view.query(ctx());
+  const query = currentQuery();
   const seq = ++state.loadSeq;
   setStatus('loading');
   try {
-    const snapshot = await source.load(query);
+    // 同一查询的上一份数据未过期时，只取增量
+    const snapshot = await source.load(query, state.snapshot);
     if (seq !== state.loadSeq) return; // 期间切换了日期范围
     state.snapshot = snapshot;
     if (!state.auth?.demo) cache.write(snapshot);
     setStatus('ok');
     renderBody();
+    // 能连上 Google 了：提交积压的离线修改
+    if (outbox.list().length) void flushPending();
   } catch (e) {
     if (seq !== state.loadSeq) return;
     handleError(e);
+  }
+}
+
+let flushing = false;
+
+/** 按顺序提交离线修改；完成后通知其他组件并刷新 */
+async function flushPending(): Promise<void> {
+  if (flushing || !state.source || !outbox.list().length) return;
+  flushing = true;
+  let result;
+  try {
+    result = await flushOutbox(state.source);
+  } finally {
+    flushing = false;
+  }
+  if (!result.done && !result.dropped.length) {
+    renderBar();
+    return;
+  }
+  void host.broadcastDataChanged(instanceId);
+  await refresh();
+  if (result.dropped.length) {
+    const first = result.dropped[0]!;
+    setStatus('error', `${result.dropped.length} 项离线修改被 Google 拒绝，已放弃（${first.message}）`);
   }
 }
 
@@ -210,44 +259,52 @@ function afterMutation(): void {
   void refresh();
 }
 
-/** 把错误转成给人看的文字；需要重新登录时返回 null 并切到登录界面 */
-function describeError(e: unknown): { status: SyncStatus; message: string } | null {
-  if (isAuthError(e)) {
-    if (e.code === 'NOT_SIGNED_IN' || e.code === 'REAUTH_REQUIRED' || e.code === 'NO_CLIENT_FILE') {
-      state.source = null;
-      state.overlay = null;
-      void start(e.code === 'REAUTH_REQUIRED' ? e.message : '');
-      return null;
-    }
-    return { status: e.code === 'NETWORK' ? 'offline' : 'error', message: e.message };
+/** 断网导致的失败：这类修改放进离线队列 */
+function isOfflineError(e: unknown): boolean {
+  return e instanceof TypeError || (isAuthError(e) && e.code === 'NETWORK');
+}
+
+/** 放进离线队列：界面上立即按修改后的样子显示，并通知其他组件 */
+function enqueue(op: PendingOp): void {
+  outbox.add(op);
+  renderBody();
+  setStatus('offline', '网络不可用，修改已保存在本地，联网后自动同步');
+  void host.broadcastDataChanged(instanceId);
+}
+
+/**
+ * 执行一项修改：联网时直接提交并用 Google 返回的结果更新界面；
+ * 断网或队列中还有未提交的修改时放进队列（保证顺序）。其他错误抛给调用方显示。
+ */
+async function perform(op: PendingOp): Promise<void> {
+  const source = state.source;
+  if (!source) return;
+  if (outbox.list().length || navigator.onLine === false) return enqueue(op);
+  let result: CalendarItem | null;
+  try {
+    result = await executeOp(source, op);
+  } catch (e) {
+    if (isOfflineError(e)) return enqueue(op);
+    throw e;
   }
-  if (e instanceof ApiError) return { status: 'error', message: `Google 返回错误 ${e.status}：${e.message}` };
-  if (e instanceof TypeError) return { status: 'offline', message: '网络不可用，请稍后再试' };
-  return { status: 'error', message: e instanceof Error ? e.message : String(e) };
-}
-
-function handleError(e: unknown): void {
-  const d = describeError(e);
-  if (d) setStatus(d.status, d.message);
-}
-
-/** 面板里的操作失败时，把错误显示在面板中，保留用户已输入的内容 */
-function handlePanelError(e: unknown): void {
-  const d = describeError(e);
-  if (d) panelError(d.message);
+  const id = targetId(op);
+  if (!result) updateItems((items) => items.filter((i) => i.id !== id));
+  else if ('tempId' in op) updateItems((items) => [...items, result]);
+  else replaceItem(id, result);
+  afterMutation();
 }
 
 /** 切换日期范围（月历翻月、日视图翻天） */
 function navigate(fn: () => void): void {
   fn();
-  state.snapshot = state.auth?.demo ? null : cache.read(view.query(ctx()));
+  state.snapshot = state.auth?.demo ? null : cache.read(currentQuery());
   renderBar();
   renderBody();
   void refresh();
 }
 
 function findItem(id: string): CalendarItem | undefined {
-  return state.snapshot?.items.find((i) => i.id === id);
+  return shownSnapshot()?.items.find((i) => i.id === id);
 }
 
 function updateItems(fn: (items: CalendarItem[]) => CalendarItem[]): void {
@@ -262,13 +319,14 @@ const replaceItem = (id: string, next: CalendarItem) => updateItems((items) => i
 async function toggleTask(id: string): Promise<void> {
   const item = findItem(id);
   if (!item || item.kind !== 'task' || !state.source) return;
-  const target = !item.completed;
-  replaceItem(id, { ...item, completed: target }); // 先更新界面
+  const completed = !item.completed;
+  // 已取回的条目先更新界面；离线新建的条目由队列叠加显示
+  const fetched = state.snapshot?.items.find((i) => i.id === id);
+  if (fetched) replaceItem(id, withCompleted(fetched, completed));
   try {
-    replaceItem(id, await state.source.setCompleted(item, target));
-    afterMutation();
+    await perform({ kind: 'set-completed', item, completed });
   } catch (e) {
-    replaceItem(id, item); // 失败则恢复
+    if (fetched) replaceItem(id, fetched); // 失败则恢复
     handleError(e);
   }
 }
@@ -300,21 +358,21 @@ async function submitAdd(form: HTMLFormElement): Promise<void> {
   const { title, important, urgent } = readTitleAndTags(data);
   if (!title) return panelError('请填写标题');
   const notes = String(data.get('notes') ?? '').trim();
-  const source = state.source;
+  const snap = state.snapshot;
   await withBusy(form, async () => {
-    let created: CalendarItem;
     if (o.date && data.get('timed') === 'on') {
-      const calendar = state.snapshot?.primaryCalendar;
+      const calendar = snap?.primaryCalendar;
       if (!calendar) return panelError('找不到主日历，无法新建日历事件');
       const startTime = String(data.get('start') || '09:00');
       const endTime = String(data.get('end') || plusHour(startTime));
-      created = await source.createEvent(calendar, { title, notes, date: o.date, startTime, endTime });
+      await perform({ kind: 'create-event', tempId: newTempId(), calendar, ev: { title, notes, date: o.date, startTime, endTime } });
     } else {
-      created = await source.createTask(o.target, { title, notes, date: o.date, important, urgent });
+      // 离线时先用已知的清单 ID 预览；长期规划清单尚未创建时用占位 ID，同步时由数据源确定真实清单
+      const listId =
+        o.target === 'long-term' ? (snap?.longTermList ?? LONG_TERM_PLACEHOLDER) : (snap?.defaultTaskList ?? 'pending-default');
+      await perform({ kind: 'create-task', tempId: newTempId(), target: o.target, listId, fields: { title, notes, date: o.date, important, urgent } });
     }
-    updateItems((items) => [...items, created]);
     openOverlay(null);
-    afterMutation();
   });
 }
 
@@ -326,19 +384,20 @@ async function submitTask(form: HTMLFormElement): Promise<void> {
   if (!title) return panelError('请填写标题');
   const date = String(data.get('date') ?? '');
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return panelError('日期格式不正确');
-  const source = state.source;
   await withBusy(form, async () => {
-    const updated = await source.updateTask(item, {
-      title,
-      notes: String(data.get('notes') ?? '').trim(),
-      date: date || null,
-      important,
-      urgent,
-      completed: data.get('completed') === 'on',
+    await perform({
+      kind: 'update-task',
+      item,
+      fields: {
+        title,
+        notes: String(data.get('notes') ?? '').trim(),
+        date: date || null,
+        important,
+        urgent,
+        completed: data.get('completed') === 'on',
+      },
     });
-    replaceItem(item.id, updated);
     openOverlay(null);
-    afterMutation();
   });
 }
 
@@ -357,21 +416,22 @@ async function submitEvent(form: HTMLFormElement): Promise<void> {
   if (allDay ? endDate < startDate : `${endDate}T${endTime}` <= `${startDate}T${startTime}`) {
     return panelError('结束时间必须晚于开始时间');
   }
-  const source = state.source;
   await withBusy(form, async () => {
-    const updated = await source.updateEvent(item, {
-      title,
-      notes: String(data.get('notes') ?? '').trim(),
-      location: String(data.get('location') ?? '').trim(),
-      allDay,
-      startDate,
-      endDate,
-      startTime,
-      endTime,
+    await perform({
+      kind: 'update-event',
+      item,
+      fields: {
+        title,
+        notes: String(data.get('notes') ?? '').trim(),
+        location: String(data.get('location') ?? '').trim(),
+        allDay,
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+      },
     });
-    replaceItem(item.id, updated);
     openOverlay(null);
-    afterMutation();
   });
 }
 
@@ -385,13 +445,37 @@ async function deleteItem(button: HTMLButtonElement): Promise<void> {
     button.textContent = '再点一次确认删除';
     return;
   }
-  const source = state.source;
   await withBusy(form, async () => {
-    await (item.kind === 'task' ? source.deleteTask(item) : source.deleteEvent(item));
-    updateItems((items) => items.filter((i) => i.id !== item.id));
+    await perform(item.kind === 'task' ? { kind: 'delete-task', item } : { kind: 'delete-event', item });
     openOverlay(null);
-    afterMutation();
   });
+}
+
+/** 把错误转成给人看的文字；需要重新登录时返回 null 并切到登录界面 */
+function describeError(e: unknown): { status: SyncStatus; message: string } | null {
+  if (isAuthError(e)) {
+    if (e.code === 'NOT_SIGNED_IN' || e.code === 'REAUTH_REQUIRED' || e.code === 'NO_CLIENT_FILE') {
+      state.source = null;
+      state.overlay = null;
+      void start(e.code === 'REAUTH_REQUIRED' ? e.message : '');
+      return null;
+    }
+    return { status: e.code === 'NETWORK' ? 'offline' : 'error', message: e.message };
+  }
+  if (e instanceof ApiError) return { status: 'error', message: `Google 返回错误 ${e.status}：${e.message}` };
+  if (e instanceof TypeError) return { status: 'offline', message: '网络不可用，请稍后再试' };
+  return { status: 'error', message: e instanceof Error ? e.message : String(e) };
+}
+
+function handleError(e: unknown): void {
+  const d = describeError(e);
+  if (d) setStatus(d.status, d.message);
+}
+
+/** 面板里的操作失败时，把错误显示在面板中，保留用户已输入的内容 */
+function handlePanelError(e: unknown): void {
+  const d = describeError(e);
+  if (d) panelError(d.message);
 }
 
 /** 日视图：点时间轴空白处，按位置预填开始时间（取整到半小时） */
@@ -471,6 +555,7 @@ app.addEventListener('click', (ev) => {
     case 'signout':
       void host.signOut().then(() => {
         cache.clear();
+        outbox.clear(); // 未同步的修改属于已退出的账号
         state.overlay = null;
         void start();
       });
@@ -603,7 +688,14 @@ void host.on<string>('data-changed', (from) => {
   window.clearTimeout(changeTimer);
   changeTimer = window.setTimeout(() => void refresh(), 400);
 });
-window.addEventListener('online', () => void refresh());
+// 网络恢复：先提交离线修改，再刷新
+window.addEventListener('online', () => void (outbox.list().length ? flushPending() : refresh()));
+// 其他组件改动了离线队列（新增或已提交）：重新显示
+window.addEventListener('storage', (e) => {
+  if (e.key !== outbox.key) return;
+  renderBar();
+  renderBody();
+});
 window.addEventListener('focus', () => {
   if (state.snapshot && Date.now() - state.snapshot.fetchedAt > FOCUS_REFRESH_MS) void refresh();
 });

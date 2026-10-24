@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError, GoogleClient } from '../src/google';
-import { eventToItem, taskToItem } from '../src/model';
-import { eventPatch, eventSpan, GoogleSource, type EventFields } from '../src/source';
+import { eventToItem, taskToItem, type GoogleTask } from '../src/model';
+import { eventPatch, eventSpan, GoogleSource, mergeChanges, type EventFields } from '../src/source';
 
 interface Call {
   method: string;
@@ -302,5 +302,94 @@ describe('各组件的查询', () => {
     const { impl, calls } = fakeFetch({ 'PATCH /lists/l1/tasks/t1': (c) => ({ body: { id: 't1', ...(c.body as object) } }) });
     await new GoogleClient(t.provider, impl).updateTask('l1', 't1', { title: 'x', notes: '', due: null });
     expect(calls[0]!.body).toEqual({ title: 'x', notes: '', due: null });
+  });
+});
+
+describe('增量刷新', () => {
+  const rangeQ = { kind: 'range' as const, range: { start: '2026-09-28', end: '2026-11-08' } };
+  const ev = (id: string, extra: object = {}) => ({
+    id, summary: id, start: { dateTime: '2026-10-24T10:00:00+08:00' }, end: { dateTime: '2026-10-24T11:00:00+08:00' }, ...extra,
+  });
+  const task = (id: string, extra: object = {}) => ({ id, title: id, status: 'needsAction', due: '2026-10-24T00:00:00.000Z', ...extra });
+
+  function server() {
+    let incremental = false;
+    return {
+      start: () => void (incremental = true),
+      routes: {
+        'GET /users/me/calendarList': () => ({ body: { items: [{ id: 'cal', summary: '我', backgroundColor: '#123', accessRole: 'owner' }] } }),
+        'GET /users/@me/lists': () => ({ body: { items: [{ id: 'l1', title: '我的任务' }] } }),
+        '/calendars/cal/events': () =>
+          incremental
+            ? { body: { items: [ev('e1', { summary: 'e1（改）' }), { id: 'e2', status: 'cancelled' }] } }
+            : { body: { items: [ev('e1'), ev('e2')] } },
+        'GET /lists/l1/tasks': () =>
+          incremental
+            ? {
+                body: {
+                  items: [
+                    task('t1', { deleted: true }),
+                    task('t2', { due: '2027-03-01T00:00:00.000Z' }), // 改到范围之外
+                    task('t4'), // 新建
+                  ],
+                },
+              }
+            : { body: { items: [task('t1'), task('t2'), task('t3')] } },
+      },
+    };
+  }
+
+  it('第二次只取增量：沿用日历和清单，带 updatedMin，合并修改、删除和移出范围的条目', async () => {
+    const t = tokens();
+    const s = server();
+    const { impl, calls } = fakeFetch(s.routes);
+    const source = new GoogleSource(t.provider, impl);
+    const first = await source.load(rangeQ);
+    expect(first.items.map((i) => i.id).sort()).toEqual(['e1', 'e2', 't1', 't2', 't3']);
+    expect(first.meta).toEqual({ calendars: [{ id: 'cal', color: '#123', writable: true }], usableLists: ['l1'] });
+
+    s.start();
+    const before = calls.length;
+    const second = await source.load(rangeQ, first);
+    const inc = calls.slice(before);
+    // 不再读取日历列表和任务清单
+    expect(inc.some((c) => c.url.pathname.includes('calendarList') || c.url.pathname.endsWith('/users/@me/lists'))).toBe(false);
+    for (const c of inc) expect(c.url.searchParams.get('updatedMin')).toBeTruthy();
+    const taskCall = inc.find((c) => c.url.pathname.endsWith('/lists/l1/tasks'))!;
+    expect(taskCall.url.searchParams.get('showDeleted')).toBe('true');
+    expect(taskCall.url.searchParams.has('dueMin')).toBe(false); // 不限日期，才能发现被移出范围的任务
+
+    const by = Object.fromEntries(second.items.map((i) => [i.id, i.title]));
+    expect(by).toEqual({ e1: 'e1（改）', t3: 't3', t4: 't4' });
+    expect(second.fullAt).toBe(first.fullAt);
+    expect(second.syncedAt).toBeGreaterThanOrEqual(first.syncedAt);
+  });
+
+  it('距上次全量刷新超过 15 分钟、或换了查询时，重新全量刷新', async () => {
+    const t = tokens();
+    const s = server();
+    const { impl, calls } = fakeFetch(s.routes);
+    const source = new GoogleSource(t.provider, impl);
+    const first = await source.load(rangeQ);
+    const stale = { ...first, fullAt: first.fullAt - 16 * 60_000 };
+    const before = calls.length;
+    await source.load(rangeQ, stale);
+    expect(calls.slice(before).some((c) => c.url.pathname.includes('calendarList'))).toBe(true);
+
+    const before2 = calls.length;
+    await source.load({ kind: 'range', range: { start: '2026-11-01', end: '2026-11-30' } }, first);
+    expect(calls.slice(before2).some((c) => c.url.pathname.includes('calendarList'))).toBe(true);
+  });
+
+  it('mergeChanges：四象限中被完成的任务移除，新的未完成任务加入', () => {
+    const gt = (id: string, extra: object = {}) => task(id, extra) as GoogleTask;
+    const items = [taskToItem(gt('a'), 'l1')!, taskToItem(gt('b'), 'l1')!];
+    const merged = mergeChanges(
+      items,
+      { upserts: [taskToItem(gt('a', { status: 'completed' }), 'l1')!, taskToItem(gt('c', { due: undefined }), 'l1')!], removedIds: [] },
+      { kind: 'open-tasks' },
+      null,
+    );
+    expect(merged.map((i) => i.id).sort()).toEqual(['b', 'c']);
   });
 });

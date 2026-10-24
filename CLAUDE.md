@@ -59,7 +59,20 @@
   - 测试增至 63 项。
   - 坑：换图标后 tauri-build 不会自动重新嵌入 exe 图标，需要修改 build.rs 的时间戳。
 - 用户明确不需要：四象限拖拽改象限。
-- 下一阶段（计划）：离线修改队列；按 syncToken / updatedMin 增量刷新；可选：二十四节气。
+- 用户已确认图标与农历显示没有问题（2026-10-24）。
+- **离线队列与增量刷新（2026-10-24）**：
+  - 增量刷新：
+    - 用 updatedMin 实现，事件带 timeMin/timeMax，任务不加日期过滤并带 showDeleted，结果用 mergeChanges 合并。
+    - 快照中的 meta 记录日历和清单，增量刷新时沿用。FULL_REFRESH_MS = 15 分钟，updatedMin 留 5 分钟余量。
+    - 已知局限：被移到当前日期范围之外的事件，要等下次全量刷新才会消失（任务不受影响）。
+  - 离线队列：
+    - 在 outbox.ts，存于 localStorage，跨组件共用，用 storage 事件同步显示。
+    - 显示时由 applyPending 叠加，条目带 pending 标记。
+    - flushOutbox 用 navigator.locks 保证同一时刻只有一个组件在提交。可重试的错误：TypeError、后台 { code, message }、5xx / 429 / 408；其余错误丢弃该项并提示。
+  - 所有修改都经过 main.ts 的 perform：联网直接提交；断网或队列非空时入队。
+  - 演示数据源可通过 globalThis.__DESKCAL_DEMO_OFFLINE__ 模拟断网。
+  - 测试增至 73 项。
+- 下一阶段（可选）：二十四节气。
 - 测试注意：`Shell.ToggleDesktop()` 在其他程序抢占前台时不可靠，自动化测试请用模拟 Win+D 按键。PowerShell 向 .NET 的 string 参数传 `$null` 时会变成空字符串，需要用 `[NullString]::Value`。
 
 ## 工作约定

@@ -428,3 +428,20 @@ h2 .count { color: var(--muted); font-weight: 400; font-size: 11px; }
 .lunar.festival { color: var(--imp); opacity: 1; }
 .lunar-line { flex: none; font-size: 11px; color: var(--muted); padding: 0 4px 1px; }
 .lunar-line .festival { color: var(--imp); }
+
+/* ---------- 离线修改 ---------- */
+.pending-count {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-right: 2px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--on-accent);
+  background: var(--urg);
+}
+/* 尚未同步到 Google 的条目：虚线边框 */
+.item.pending, .row-item.pending, .tl-event.pending { outline: 1px dashed var(--urg); outline-offset: -1px; }

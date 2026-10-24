@@ -39,6 +39,8 @@ export interface CalendarItem {
   editable: boolean;
   /** 重复事件中的一次（修改只影响这一次） */
   recurring: boolean;
+  /** 有尚未同步到 Google 的离线修改 */
+  pending?: boolean;
 }
 
 export const TASK_COLOR = '#7aa2f7';

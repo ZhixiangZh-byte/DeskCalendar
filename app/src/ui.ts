@@ -54,10 +54,10 @@ export function rowHtml(item: CalendarItem, opts: { chip?: string; chipClass?: s
   const chip = opts.chip ? `<span class="chip ${opts.chipClass ?? ''}">${esc(opts.chip)}</span>` : '';
   if (item.kind === 'event') {
     const time = item.time ? `<span class="time">${item.time}</span>` : '';
-    return `<li class="row-item event" style="--c:${esc(item.color)}" data-act="open-event" data-id="${esc(item.id)}" title="${esc(item.title)}">
+    return `<li class="row-item event${item.pending ? ' pending' : ''}" style="--c:${esc(item.color)}" data-act="open-event" data-id="${esc(item.id)}" title="${esc(item.title)}">
         <span class="bar-mark"></span>${time}<span class="t">${esc(item.title)}</span>${chip}</li>`;
   }
-  return `<li class="row-item task${item.completed ? ' done' : ''}" data-act="open-task" data-id="${esc(item.id)}" title="${esc(item.notes ? `${item.title}\n${item.notes}` : item.title)}">
+  return `<li class="row-item task${item.completed ? ' done' : ''}${item.pending ? ' pending' : ''}" data-act="open-task" data-id="${esc(item.id)}" title="${esc(item.notes ? `${item.title}\n${item.notes}` : item.title)}">
       <button class="check" data-act="toggle" data-id="${esc(item.id)}" aria-label="${item.completed ? '标记为未完成' : '标记为完成'}"></button>
       <span class="t">${esc(item.title)}</span>${tagDots(item)}${chip}</li>`;
 }

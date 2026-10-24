@@ -37,6 +37,8 @@
 - 显示 Google 日历里所有处于勾选状态的日历；任务来自除"长期规划"外的所有清单（长期规划组件除外）。
 - 任务前的红点表示 `#重要`，橙点表示 `#紧急`（来自备注末尾的标签行）。
 - 在任一组件里修改数据后，其他组件会立即刷新；另外每 3 分钟自动刷新，窗口获得焦点、网络恢复时也会刷新。离线时显示上次缓存的数据。
+- **增量刷新**：第一次全量读取后，每次刷新只取上次以来修改或删除的条目并合并（日历列表和任务清单沿用上次的结果）；每 15 分钟，以及翻月 / 翻天时，重新全量读取一次。
+- **离线修改**：断网时新建、修改、勾选、删除都照常进行。修改保存在本地队列（所有组件共用），条目显示为橙色虚线框，顶栏状态点旁显示待同步数量。网络恢复、启动或下一次刷新成功时，按顺序自动提交。本地新建的条目同步后换成 Google 的真实 ID，之后的修改照常生效。如果某项修改被 Google 拒绝（例如条目已在其他设备上删除），会放弃这一项并在状态栏提示。退出登录会清空未同步的修改。
 
 ## 文件与数据
 
@@ -46,7 +48,7 @@
 | 刷新令牌 | Windows 凭据管理器 → 普通凭据 → `DeskCalendar` |
 | 锁定状态、显示哪些组件 | `%APPDATA%\com.deskcalendar.app\settings.json` |
 | 各组件的位置和大小 | 由 window-state 插件保存在同一目录 |
-| 数据缓存、外观偏好 | WebView2 的 localStorage（`%LOCALAPPDATA%\com.deskcalendar.app`），所有组件共用 |
+| 数据缓存、外观偏好、离线修改队列 | WebView2 的 localStorage（`%LOCALAPPDATA%\com.deskcalendar.app`），所有组件共用 |
 
 注意：Google 同意屏幕处于"测试"状态时，登录 7 天后失效，组件会提示重新登录。改为"正式发布"即可避免。
 
@@ -61,6 +63,7 @@ npm run tauri build -- --no-bundle            # 发布版 exe
 ```
 
 - 启动参数：`--demo` 使用演示数据，不登录 Google；`--widgets=month,day,...` 本次运行显示指定组件（不改动保存的选择）。
+- 模拟断网（仅演示数据）：在开发者工具控制台执行 `globalThis.__DESKCAL_DEMO_OFFLINE__ = true`；恢复时设为 `false` 并执行 `dispatchEvent(new Event('online'))`。
 - `scripts/smoke.ps1 [-Release]`：以演示数据启动全部五个组件，检查窗口所有者是否为桌面窗口、按 Win+D 后是否位于桌面之上。运行时会短暂"显示桌面"。
 - Rust 单元测试：`cd src-tauri && cargo test`。
 - 更换图标：`npx tauri icon ..\calender_2.png`（源图为 1254×1254 的透明 PNG，位于仓库根目录），然后删除生成的 `icons/android`、`icons/ios`。**换图标后要先修改一下 `src-tauri/build.rs` 的时间戳**（或 `cargo clean`），否则构建脚本不会重新嵌入 exe 图标。
@@ -74,7 +77,8 @@ npm run tauri build -- --no-bundle            # 发布版 exe
 | `src-tauri/src/lib.rs` | 组件窗口的创建与关闭、托盘菜单、锁定、鼠标穿透、开机自启、提供给前端的命令 |
 | `src/google.ts` | Google REST 客户端（收到 401 时刷新令牌并重试） |
 | `src/model.ts` | 统一的条目模型：事件和任务的转换、四象限标签 |
-| `src/source.ts` | 数据源（Google / 演示）、各组件的查询、本地缓存 |
+| `src/source.ts` | 数据源（Google / 演示）、各组件的查询、增量刷新与合并、本地缓存 |
+| `src/outbox.ts` | 离线修改队列：排队、预览叠加、按顺序提交、临时 ID 换真实 ID |
 | `src/month.ts` | 月历网格 |
 | `src/lunar.ts` | 农历换算（Intl 中国历，无需自带历表）、传统月名日名、干支生肖、传统节日 |
 | `src/views.ts` | 五个视图：查询、标题、渲染；时间轴布局、四象限和回顾箱分组 |

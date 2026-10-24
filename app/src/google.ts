@@ -91,12 +91,17 @@ export class GoogleClient {
   }
 
   /** 时间范围内的事件（重复事件按单次展开） */
-  async events(calendarId: string, timeMin: Date, timeMax: Date): Promise<GoogleEvent[]> {
+  /**
+   * 时间范围内的事件（重复事件按单次展开）。
+   * updatedMin：只要此时刻之后修改过的事件，此时会自动包含已删除（status 为 cancelled）的事件，用于增量刷新
+   */
+  async events(calendarId: string, timeMin: Date, timeMax: Date, opts: { updatedMin?: string } = {}): Promise<GoogleEvent[]> {
     const url = new URL(`${CAL}/calendars/${encodeURIComponent(calendarId)}/events`);
     url.searchParams.set('singleEvents', 'true');
     url.searchParams.set('maxResults', '2500');
     url.searchParams.set('timeMin', timeMin.toISOString());
     url.searchParams.set('timeMax', timeMax.toISOString());
+    if (opts.updatedMin) url.searchParams.set('updatedMin', opts.updatedMin);
     return this.listAll<GoogleEvent>(url);
   }
 
@@ -114,7 +119,16 @@ export class GoogleClient {
    */
   async tasks(
     listId: string,
-    opts: { dueMin?: string; dueMax?: string; completedMin?: string; showCompleted?: boolean } = {},
+    opts: {
+      dueMin?: string;
+      dueMax?: string;
+      completedMin?: string;
+      showCompleted?: boolean;
+      /** 增量刷新：只要此时刻之后修改过的任务 */
+      updatedMin?: string;
+      /** 包含已删除的任务（deleted 为 true），用于增量刷新时移除 */
+      showDeleted?: boolean;
+    } = {},
   ): Promise<GoogleTask[]> {
     const url = new URL(`${TASKS}/lists/${encodeURIComponent(listId)}/tasks`);
     url.searchParams.set('maxResults', '100');
@@ -124,6 +138,8 @@ export class GoogleClient {
     if (opts.dueMin) url.searchParams.set('dueMin', `${opts.dueMin}T00:00:00.000Z`);
     if (opts.dueMax) url.searchParams.set('dueMax', `${opts.dueMax}T00:00:00.000Z`);
     if (opts.completedMin) url.searchParams.set('completedMin', opts.completedMin);
+    if (opts.updatedMin) url.searchParams.set('updatedMin', opts.updatedMin);
+    if (opts.showDeleted) url.searchParams.set('showDeleted', 'true');
     return this.listAll<GoogleTask>(url);
   }
 

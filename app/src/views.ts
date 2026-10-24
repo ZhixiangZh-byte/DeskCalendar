@@ -59,9 +59,9 @@ function monthItemHtml(item: CalendarItem, date: string): string {
   if (item.kind === 'event') {
     const continued = item.start < date;
     const label = item.time && !continued ? `<span class="time">${item.time}</span>` : '';
-    return `<li class="item event${item.time ? ' timed' : ' allday'}" style="--c:${esc(item.color)}" data-act="open-event" data-id="${esc(item.id)}" title="${esc(item.title)}">${label}<span class="t">${esc(item.title)}</span></li>`;
+    return `<li class="item event${item.time ? ' timed' : ' allday'}${item.pending ? ' pending' : ''}" style="--c:${esc(item.color)}" data-act="open-event" data-id="${esc(item.id)}" title="${esc(item.title)}">${label}<span class="t">${esc(item.title)}</span></li>`;
   }
-  return `<li class="item task${item.completed ? ' done' : ''}" data-act="open-task" data-id="${esc(item.id)}" title="${esc(item.notes ? `${item.title}\n${item.notes}` : item.title)}">
+  return `<li class="item task${item.completed ? ' done' : ''}${item.pending ? ' pending' : ''}" data-act="open-task" data-id="${esc(item.id)}" title="${esc(item.notes ? `${item.title}\n${item.notes}` : item.title)}">
       <button class="check" data-act="toggle" data-id="${esc(item.id)}" aria-label="${item.completed ? '标记为未完成' : '标记为完成'}"></button>
       <span class="t">${esc(item.title)}</span>${tagDots(item)}</li>`;
 }
@@ -204,7 +204,7 @@ function dayView(): View {
           const left = `calc(var(--gutter) + (100% - var(--gutter)) * ${p.col} / ${p.cols})`;
           const width = `calc((100% - var(--gutter)) / ${p.cols} - 3px)`;
           const time = p.item.start < date ? '（续）' : p.item.time!;
-          return `<div class="tl-event" style="top:${top}px;height:${height}px;left:${left};width:${width};--c:${esc(p.item.color)}" data-act="open-event" data-id="${esc(p.item.id)}" title="${esc(`${p.item.time}–${p.item.endTime ?? ''} ${p.item.title}`)}"><span class="time">${time}</span> ${esc(p.item.title)}</div>`;
+          return `<div class="tl-event${p.item.pending ? ' pending' : ''}" style="top:${top}px;height:${height}px;left:${left};width:${width};--c:${esc(p.item.color)}" data-act="open-event" data-id="${esc(p.item.id)}" title="${esc(`${p.item.time}–${p.item.endTime ?? ''} ${p.item.title}`)}"><span class="time">${time}</span> ${esc(p.item.title)}</div>`;
         })
         .join('');
       return `
