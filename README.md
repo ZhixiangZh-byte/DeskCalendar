@@ -36,9 +36,9 @@
 - Windows 10 / 11 (x64). The only runtime needed is WebView2: it ships with Windows 11, and the installer fetches it if it is missing.
 - A Google account.
 
-### Got an installer from a colleague? Just install and sign in
+### Already got an installer? Just install and sign in
 
-If someone who has already set up DeskCalendar (for example, a colleague in your group) gives you their installer, **you do not need a Google Cloud project, an OAuth client, or any of the publishing steps below**.
+If someone who has already set up DeskCalendar gives you their installer, **you do not need a Google Cloud project, an OAuth client, or any of the publishing steps below**.
 
 1. Run the installer. If SmartScreen warns about an unsigned app, choose *More info → Run anyway*.
 2. Open DeskCalendar, click **Sign in to Google**, and sign in with **your own** Google account.
@@ -136,9 +136,9 @@ DeskCalendar runs only on your computer and accesses Google Calendar and Google 
 - Windows 10 / 11（x64）。需要的运行环境只有 WebView2：Windows 11 自带，缺少时安装程序会自动下载。
 - 一个 Google 账号。
 
-### 从同事那里拿到安装包？直接安装、登录即可
+### 已有安装包？直接安装、登录即可
 
-如果已经配置好 DeskCalendar 的人（例如课题组同事）把安装包给你，**你不需要 Google Cloud 项目、OAuth 客户端，也不需要下文的发布步骤**：
+如果已经配置好 DeskCalendar 的人把安装包给你，**你不需要 Google Cloud 项目、OAuth 客户端，也不需要下文的发布步骤**：
 
 1. 运行安装包。如果 Windows 提示"已保护你的电脑"（安装包没有代码签名），点"更多信息 → 仍要运行"。
 2. 打开 DeskCalendar，点"登录 Google"，用**你自己的** Google 账号登录。
