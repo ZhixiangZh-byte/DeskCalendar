@@ -1,5 +1,30 @@
 # DeskCalendar 安装说明
 
+先看自己属于哪种情况：
+
+| 情况 | 需要做什么 |
+|---|---|
+| 从同事（或其他已配置好的人）那里拿到安装包 | 只看"**同事安装**"一节：安装、用自己的 Google 账号登录即可 |
+| 自己在新电脑上安装自己构建的安装包 | 看"在新电脑上安装" |
+| 从源码构建、用自己的 Google Cloud 项目分发 | 看"让登录不再每 7 天失效"和"自己构建安装包" |
+
+## 同事安装（不需要任何 Google 后台配置）
+
+拿到安装包 `DeskCalendar_x.y.z_x64-setup.exe` 后：
+
+1. 双击安装。如果 Windows 提示"已保护你的电脑"，点"更多信息 → 仍要运行"（安装包没有代码签名）。
+2. 打开 DeskCalendar，点"登录 Google"，用**自己的** Google 账号登录。
+3. 出现"Google 未验证此应用"时，点"**高级**"→"**转至 DeskCalendar（不安全）**"，然后勾选授权。
+4. 右键托盘图标，可以显示其他组件、开机自启等。
+
+**不需要**：创建 Google Cloud 项目、OAuth 客户端，或者执行下文的发布步骤。这些都由提供安装包的人做过了。
+
+说明：
+- 每个人登录的是自己的账号，日程和任务只在自己的电脑和 Google 之间传输，提供安装包的人看不到。
+- 本应用未经 Google 审核，最多 100 个 Google 账号可以使用。
+- 个人 Gmail 账号可以正常使用；单位的 Google Workspace 账号可能被管理员禁止使用未审核的应用，这时请改用个人 Gmail 账号，或者请管理员放行。
+- 对提供安装包的人：内嵌 OAuth 客户端的安装包只在课题组等可信范围内传递，**不要公开发布**。如果安装包流传到不该去的地方，可以在 Google Cloud Console 中重置客户端密钥并重新构建，旧安装包随之无法登录。
+
 ## 在新电脑上安装
 
 1. 把安装包 `DeskCalendar_1.0.0_x64-setup.exe`（约 4 MB）复制到新电脑上，双击运行。
@@ -17,12 +42,18 @@
 
 卸载：在"设置 → 应用 → 已安装的应用"中卸载 DeskCalendar。登录凭据保存在 Windows 凭据管理器中（普通凭据 → `DeskCalendar`），卸载后如需清除，可在那里手动删除。
 
-## 让登录不再每 7 天失效
+## 让登录不再每 7 天失效（仅分发者需要，只做一次）
 
-Google Auth Platform → **Audience（目标对象）** → Publishing status 点"**Publish app**"，改为"In production"。
+1. Google Auth Platform → **Branding（品牌信息）**，填写以下链接后保存：
+   - 应用主页：`https://github.com/ZhixiangZh-byte/DeskCalendar`
+   - 隐私政策：`https://github.com/ZhixiangZh-byte/DeskCalendar/blob/main/PRIVACY.md`
+   - 服务条款：`https://github.com/ZhixiangZh-byte/DeskCalendar/blob/main/TERMS.md`
+   - Authorized domains（授权网域）：`github.com`
+2. **Audience（目标对象）** → Publishing status 点"**Publish app**"，改为"In production"。
 
-- 自用（不超过 100 个用户）时，**不需要**提交审核，也不需要填写主页和隐私政策链接。登录时会继续显示"Google 未验证此应用"，点"继续"即可。
-- 发布后，每台电脑需要重新登录一次，之后刷新令牌就不会再按 7 天过期。
+- 不超过 100 个用户时，**不需要**提交 Google 审核。登录时会继续显示"Google 未验证此应用"，按上文"同事安装"第 3 步继续即可。
+- 发布后，已登录的电脑需要重新登录一次，之后刷新令牌就不会再按 7 天过期。
+- 改为"正式发布"后，其他人不必再被加为测试用户就能登录。
 
 ## 自己构建安装包
 

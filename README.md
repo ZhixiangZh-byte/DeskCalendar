@@ -35,11 +35,24 @@
 
 - Windows 10 / 11 (x64). The only runtime needed is WebView2: it ships with Windows 11, and the installer fetches it if it is missing.
 - A Google account.
-- A Google OAuth client of type "Desktop app". Every user creates their own; see the next section.
 
-### Set up a Google OAuth client (one time)
+### Got an installer from a colleague? Just install and sign in
 
-The repository does not contain any OAuth credentials, so you need your own:
+If someone who has already set up DeskCalendar (for example, a colleague in your group) gives you their installer, **you do not need a Google Cloud project, an OAuth client, or any of the publishing steps below**.
+
+1. Run the installer. If SmartScreen warns about an unsigned app, choose *More info → Run anyway*.
+2. Open DeskCalendar, click **Sign in to Google**, and sign in with **your own** Google account.
+3. Google will show "Google hasn't verified this app". Click *Advanced → Go to DeskCalendar (unsafe)*, then grant the permissions.
+
+Your calendar and task data travel only between your computer and Google; the person who built the installer cannot see them.
+
+Things to know:
+- The app is unverified, so at most 100 Google accounts can use it.
+- Personal Gmail accounts work. Organization (Google Workspace) accounts may be blocked from unverified apps by their administrator.
+
+### Building or distributing it yourself: set up a Google OAuth client (one time)
+
+You only need this section if you build DeskCalendar from source, or want to distribute it under your own Google Cloud project. The repository does not contain any OAuth credentials, so you need your own:
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create a project.
 2. Enable the **Google Calendar API** and **Google Tasks API** for it.
@@ -122,11 +135,24 @@ DeskCalendar runs only on your computer and accesses Google Calendar and Google 
 
 - Windows 10 / 11（x64）。需要的运行环境只有 WebView2：Windows 11 自带，缺少时安装程序会自动下载。
 - 一个 Google 账号。
-- 一个"桌面应用"类型的 Google OAuth 客户端。每位使用者需要自己创建，见下一节。
 
-### 创建 Google OAuth 客户端（只需一次）
+### 从同事那里拿到安装包？直接安装、登录即可
 
-仓库中不含任何 OAuth 凭据，需要自己创建：
+如果已经配置好 DeskCalendar 的人（例如课题组同事）把安装包给你，**你不需要 Google Cloud 项目、OAuth 客户端，也不需要下文的发布步骤**：
+
+1. 运行安装包。如果 Windows 提示"已保护你的电脑"（安装包没有代码签名），点"更多信息 → 仍要运行"。
+2. 打开 DeskCalendar，点"登录 Google"，用**你自己的** Google 账号登录。
+3. Google 会提示"Google 未验证此应用"：点"**高级**"→"**转至 DeskCalendar（不安全）**"，然后勾选授权。
+
+你的日程和任务数据只在你的电脑和 Google 之间传输，提供安装包的人看不到。
+
+需要知道的事：
+- 本应用未经 Google 审核，最多 100 个 Google 账号可以使用。
+- 个人 Gmail 账号可以正常使用；单位的 Google Workspace 账号可能被管理员禁止使用未审核的应用。
+
+### 自己构建或分发：创建 Google OAuth 客户端（只需一次）
+
+只有从源码自行构建，或要用自己的 Google Cloud 项目分发 DeskCalendar 时，才需要这一节。仓库中不含任何 OAuth 凭据，需要自己创建：
 
 1. 在 [Google Cloud Console](https://console.cloud.google.com/) 中新建一个项目。
 2. 为项目启用 **Google Calendar API** 和 **Google Tasks API**。
