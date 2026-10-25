@@ -4,11 +4,11 @@
 
 | 情况 | 需要做什么 |
 |---|---|
-| 从同事（或其他已配置好的人）那里拿到安装包 | 只看"**同事安装**"一节：安装、用自己的 Google 账号登录即可 |
+| 已有安装包 | 只看"**exe安装**"一节：安装、用自己的 Google 账号登录即可 |
 | 自己在新电脑上安装自己构建的安装包 | 看"在新电脑上安装" |
-| 从源码构建、用自己的 Google Cloud 项目分发 | 看"让登录不再每 7 天失效"和"自己构建安装包" |
+| 从源码构建、用自己的 Google Cloud 项目分发 | 看 "构建安装包" |
 
-## 同事安装（不需要任何 Google 后台配置）
+## exe安装
 
 拿到安装包 `DeskCalendar_x.y.z_x64-setup.exe` 后：
 
@@ -42,20 +42,7 @@
 
 卸载：在"设置 → 应用 → 已安装的应用"中卸载 DeskCalendar。登录凭据保存在 Windows 凭据管理器中（普通凭据 → `DeskCalendar`），卸载后如需清除，可在那里手动删除。
 
-## 让登录不再每 7 天失效（仅分发者需要，只做一次）
-
-1. Google Auth Platform → **Branding（品牌信息）**，填写以下链接后保存：
-   - 应用主页：`https://github.com/ZhixiangZh-byte/DeskCalendar`
-   - 隐私政策：`https://github.com/ZhixiangZh-byte/DeskCalendar/blob/main/PRIVACY.md`
-   - 服务条款：`https://github.com/ZhixiangZh-byte/DeskCalendar/blob/main/TERMS.md`
-   - Authorized domains（授权网域）：`github.com`
-2. **Audience（目标对象）** → Publishing status 点"**Publish app**"，改为"In production"。
-
-- 不超过 100 个用户时，**不需要**提交 Google 审核。登录时会继续显示"Google 未验证此应用"，按上文"同事安装"第 3 步继续即可。
-- 发布后，已登录的电脑需要重新登录一次，之后刷新令牌就不会再按 7 天过期。
-- 改为"正式发布"后，其他人不必再被加为测试用户就能登录。
-
-## 自己构建安装包
+## 构建安装包与发布
 
 需要本机开发环境（Rust、Node.js、VS Build Tools，见 `../CalendarApp/CalendarApp/environment/ENVIRONMENT.md`）。
 
@@ -68,13 +55,19 @@ npm run tauri build
 ```
 
 - 生成的安装包在 `app\src-tauri\target\release\bundle\nsis\`。
-- 不设 `DESKCALENDAR_OAUTH_CLIENT` 时不会内嵌客户端，使用者要把自己的客户端文件放到 `%USERPROFILE%\.deskcalendar\google-oauth-client.json`。在 GitHub 上公开发布的安装包应这样构建。
+- 使用者要把自己的客户端文件放到 `%USERPROFILE%\.deskcalendar\google-oauth-client.json`。
 - 第一次打包时会自动下载 NSIS 打包工具（Tauri 的缓存）。
-- 更换图标后，需要先修改一下 `src-tauri/build.rs` 的时间戳，否则 exe 图标不会更新（见 `app/README.md`）。
+- 更换图标后，需要先修改一下 `src-tauri/build.rs` 的时间戳，否则 exe 图标不会更新。
 
-## 开源发布
 
-- OAuth 客户端文件、刷新令牌都不在仓库中（已在 `.gitignore` 中排除，历史提交中也没有）。
-- git 提交记录的作者邮箱使用 GitHub 的 noreply 地址，不暴露个人邮箱。
-- 以 MIT 许可证开源（`LICENSE`）。
+1. Google Auth Platform → **Branding（品牌信息）**，填写以下链接后保存：
+   - 应用主页：`https://github.com/ZhixiangZh-byte/DeskCalendar`
+   - 隐私政策：`https://github.com/ZhixiangZh-byte/DeskCalendar/blob/main/PRIVACY.md`
+   - 服务条款：`https://github.com/ZhixiangZh-byte/DeskCalendar/blob/main/TERMS.md`
+   - Authorized domains（授权网域）：`github.com`
+2. **Audience（目标对象）** → Publishing status 点"**Publish app**"，改为"In production"。
+
+- 不超过 100 个用户时，**不需要**提交 Google 审核。登录时会继续显示"Google 未验证此应用"，按上文"同事安装"第 3 步继续即可。
+- 发布后，已登录的电脑需要重新登录一次，之后刷新令牌就不会再按 7 天过期。
+- 改为"正式发布"后，其他人不必再被加为测试用户就能登录。
 - 隐私政策和服务条款：根目录的 `PRIVACY.md`、`TERMS.md`；网页版在 `docs/`，可以通过 GitHub Pages 发布（见 `docs/README.md`）。
