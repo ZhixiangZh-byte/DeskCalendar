@@ -38,7 +38,7 @@
 
 ### Already got an installer? Just install and sign in
 
-If someone who has already set up DeskCalendar gives you their installer, **you do not need a Google Cloud project, an OAuth client, or any of the publishing steps below**.
+**If you already have an .exe installer, install it directly:**
 
 1. Run the installer. If SmartScreen warns about an unsigned app, choose *More info → Run anyway*.
 2. Open DeskCalendar, click **Sign in to Google**, and sign in with **your own** Google account.
@@ -138,7 +138,7 @@ DeskCalendar runs only on your computer and accesses Google Calendar and Google 
 
 ### 已有安装包？直接安装、登录即可
 
-如果已经配置好 DeskCalendar 的人把安装包给你，**你不需要 Google Cloud 项目、OAuth 客户端，也不需要下文的发布步骤**：
+**如果已有exe安装包，直接安装即可**：
 
 1. 运行安装包。如果 Windows 提示"已保护你的电脑"（安装包没有代码签名），点"更多信息 → 仍要运行"。
 2. 打开 DeskCalendar，点"登录 Google"，用**你自己的** Google 账号登录。
