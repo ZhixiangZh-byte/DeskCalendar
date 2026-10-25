@@ -2,7 +2,7 @@
 name = "deskcalendar"
 version = "1.0.0"
 description = "DeskCalendar：基于 Google Calendar / Tasks 的 Windows 桌面月历组件"
-authors = ["Guanyu Zhang"]
+authors = ["ZhixiangZh-byte"]
 edition = "2024"
 
 [lib]

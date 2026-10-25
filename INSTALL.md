@@ -41,9 +41,9 @@ npm run tauri build
 - 第一次打包时会自动下载 NSIS 打包工具（Tauri 的缓存）。
 - 更换图标后，需要先修改一下 `src-tauri/build.rs` 的时间戳，否则 exe 图标不会更新（见 `app/README.md`）。
 
-## 开源发布前的检查
+## 开源发布
 
 - OAuth 客户端文件、刷新令牌都不在仓库中（已在 `.gitignore` 中排除，历史提交中也没有）。
-- git 提交记录中包含作者邮箱。如果不想公开，推送到 GitHub 前可以改用 GitHub 提供的 noreply 邮箱重写历史，或者新建一个只包含当前代码的仓库。
-- 建议添加开源许可证（如 MIT）。
-- `docs/` 中有主页、隐私政策、服务条款的草稿，可通过 GitHub Pages 发布（见 `docs/README.md`）。
+- git 提交记录的作者邮箱使用 GitHub 的 noreply 地址，不暴露个人邮箱。
+- 以 MIT 许可证开源（`LICENSE`）。
+- 隐私政策和服务条款：根目录的 `PRIVACY.md`、`TERMS.md`；网页版在 `docs/`，可以通过 GitHub Pages 发布（见 `docs/README.md`）。

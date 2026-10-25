@@ -21,8 +21,8 @@
     "targets": [
       "nsis"
     ],
-    "publisher": "Guanyu Zhang",
-    "copyright": "Copyright © 2026 Guanyu Zhang",
+    "publisher": "ZhixiangZh-byte",
+    "copyright": "Copyright © 2026 ZhixiangZh-byte",
     "category": "Productivity",
     "shortDescription": "DeskCalendar：Windows 桌面日历组件（Google Calendar / Tasks）",
     "longDescription": "贴在 Windows 桌面上的透明组件：月历、日视图、四象限、回顾箱、长期规划，直接读写 Google Calendar 和 Google Tasks。",

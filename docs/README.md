@@ -1,16 +1,16 @@
 # DeskCalendar 网站（GitHub Pages）
 
-Google Auth Platform 的"品牌信息"（Branding）中可以填写应用主页、隐私政策、服务条款三个链接。这里是这三个页面的草稿，可以用 GitHub Pages 免费发布，不需要购买域名。
+Google Auth Platform 的"品牌信息"（Branding）中可以填写应用主页、隐私政策、服务条款三个链接。最简单的做法是直接使用仓库中的页面：主页填 <https://github.com/ZhixiangZh-byte/DeskCalendar>，隐私政策填 <https://github.com/ZhixiangZh-byte/DeskCalendar/blob/main/PRIVACY.md>，服务条款填 <https://github.com/ZhixiangZh-byte/DeskCalendar/blob/main/TERMS.md>。本目录是同样内容的网页版，可以用 GitHub Pages 免费发布，不需要购买域名。
 
 | 文件 | 用途 | 发布后的地址（示例） |
 |---|---|---|
-| `index.html` | 应用主页 | `https://<用户名>.github.io/<仓库名>/` |
-| `privacy.html` | 隐私政策（含 Google 要求的 Limited Use 声明） | `https://<用户名>.github.io/<仓库名>/privacy.html` |
-| `terms.html` | 服务条款 | `https://<用户名>.github.io/<仓库名>/terms.html` |
+| `index.html` | 应用主页 | `https://zhixiangzh-byte.github.io/DeskCalendar/` |
+| `privacy.html` | 隐私政策（含 Google 要求的 Limited Use 声明） | `https://zhixiangzh-byte.github.io/DeskCalendar/privacy.html` |
+| `terms.html` | 服务条款 | `https://zhixiangzh-byte.github.io/DeskCalendar/terms.html` |
 
 ## 发布步骤
 
-1. 把所有 `{{GITHUB_URL}}` 替换成仓库地址，`{{CONTACT_EMAIL}}` 替换成联系邮箱。
+1. 仓库地址和联系方式（GitHub Issues）已经填好，不需要再修改。
 2. 推送到 GitHub 后，打开仓库 Settings → Pages → Build and deployment，选择 Deploy from a branch → `main` 分支 → `/docs` 目录。
 3. 几分钟后即可访问上表中的地址，把它们填到 Google Auth Platform → Branding。
 
